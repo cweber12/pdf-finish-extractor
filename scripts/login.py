@@ -27,7 +27,6 @@ load_dotenv(ENV_FILE)
 
 _FIREBASE_API_KEY = os.environ["FIREBASE_API_KEY"]
 _FIREBASE_PROJECT_ID = os.environ["FIREBASE_PROJECT_ID"]
-_PREFILL_EMAIL = os.environ.get("FIREBASE_EMAIL", "")
 
 _HTML = """\
 <!DOCTYPE html>
@@ -36,48 +35,44 @@ _HTML = """\
   <meta charset="utf-8">
   <title>FFE Tool — Sign in</title>
   <style>
-    body {{ font-family: sans-serif; max-width: 380px; margin: 80px auto; padding: 24px; }}
-    h2   {{ margin-bottom: 24px; }}
-    input  {{ display: block; width: 100%; padding: 8px; margin: 8px 0 16px;
-              box-sizing: border-box; font-size: 14px; border: 1px solid #ccc; border-radius: 4px; }}
-    button {{ width: 100%; padding: 10px; background: #4285f4; color: #fff;
-              border: none; border-radius: 4px; font-size: 15px; cursor: pointer; }}
+    body   {{ font-family: sans-serif; max-width: 380px; margin: 80px auto; padding: 24px; text-align: center; }}
+    h2     {{ margin-bottom: 32px; }}
+    button {{ padding: 12px 24px; background: #4285f4; color: #fff; border: none;
+              border-radius: 4px; font-size: 15px; cursor: pointer; display: inline-flex;
+              align-items: center; gap: 10px; }}
     button:hover {{ background: #2a6fde; }}
-    #status {{ margin-top: 18px; font-size: 14px; }}
+    #status {{ margin-top: 24px; font-size: 14px; }}
     .error   {{ color: #c62828; }}
     .success {{ color: #2e7d32; font-weight: bold; }}
   </style>
 </head>
 <body>
   <h2>FFE Tool — Sign in</h2>
-  <input id="email"    type="email"    placeholder="Email"    value="{prefill_email}">
-  <input id="password" type="password" placeholder="Password">
-  <button onclick="signIn()">Sign in</button>
+  <button onclick="signIn()">
+    <svg width="18" height="18" viewBox="0 0 48 48"><path fill="#FFF" d="M44.5 20H24v8.5h11.8C34.7 33.9 30.1 37 24 37c-7.2 0-13-5.8-13-13s5.8-13 13-13c3.1 0 5.9 1.1 8.1 2.9l6.4-6.4C34.6 4.1 29.6 2 24 2 11.8 2 2 11.8 2 24s9.8 22 22 22c11 0 21-8 21-22 0-1.3-.2-2.7-.5-4z"/></svg>
+    Sign in with Google
+  </button>
   <div id="status"></div>
 
-  <script>
-    async function signIn() {{
-      const email    = document.getElementById('email').value.trim();
-      const password = document.getElementById('password').value;
-      const status   = document.getElementById('status');
-      status.textContent = 'Signing in\u2026';
+  <script type="module">
+    import {{ initializeApp }}        from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
+    import {{ getAuth, signInWithPopup, GoogleAuthProvider }}
+                                      from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
+
+    const app  = initializeApp({{ apiKey: '{api_key}', authDomain: '{auth_domain}' }});
+    const auth = getAuth(app);
+
+    window.signIn = async function() {{
+      const status = document.getElementById('status');
+      status.textContent = 'Opening Google sign-in\u2026';
       status.className   = '';
       try {{
-        const resp = await fetch(
-          'https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key={api_key}',
-          {{
-            method: 'POST',
-            headers: {{'Content-Type': 'application/json'}},
-            body: JSON.stringify({{ email, password, returnSecureToken: true }}),
-          }}
-        );
-        const data = await resp.json();
-        if (data.error) throw new Error(data.error.message);
-
+        const result = await signInWithPopup(auth, new GoogleAuthProvider());
+        const user   = result.user;
         await fetch('/callback', {{
-          method: 'POST',
+          method:  'POST',
           headers: {{'Content-Type': 'application/json'}},
-          body: JSON.stringify({{ refreshToken: data.refreshToken, uid: data.localId }}),
+          body:    JSON.stringify({{ refreshToken: user.refreshToken, uid: user.uid }}),
         }});
         status.textContent = '\u2713 Signed in! You can close this tab.';
         status.className   = 'success';
@@ -85,10 +80,7 @@ _HTML = """\
         status.textContent = 'Error: ' + e.message;
         status.className   = 'error';
       }}
-    }}
-
-    // Allow Enter key to submit
-    document.addEventListener('keydown', e => {{ if (e.key === 'Enter') signIn(); }});
+    }};
   </script>
 </body>
 </html>
@@ -115,7 +107,6 @@ class _Handler(http.server.BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:  # noqa: N802
         html = _HTML.format(
-            prefill_email=_PREFILL_EMAIL,
             api_key=_FIREBASE_API_KEY,
             auth_domain=f"{_FIREBASE_PROJECT_ID}.firebaseapp.com",
         )
@@ -139,10 +130,10 @@ class _Handler(http.server.BaseHTTPRequestHandler):
 def main() -> None:
     global _server_ref
 
-    with socketserver.TCPServer(("127.0.0.1", 0), _Handler) as server:
+    with socketserver.TCPServer(("localhost", 0), _Handler) as server:
         _server_ref = server
         port = server.server_address[1]
-        url = f"http://127.0.0.1:{port}"
+        url = f"http://localhost:{port}"
         print(f"Opening {url} …")
         webbrowser.open(url)
         server.serve_forever()

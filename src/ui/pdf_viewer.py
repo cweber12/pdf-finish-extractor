@@ -3,7 +3,7 @@ from __future__ import annotations
 import fitz  # PyMuPDF
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QImage, QPixmap
-from PyQt6.QtWidgets import QLabel, QScrollArea, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import QLabel, QVBoxLayout, QWidget
 
 
 class PDFViewer(QWidget):
@@ -11,7 +11,8 @@ class PDFViewer(QWidget):
 
     Consumers call :meth:`load_page` to display a specific page.
     The rendered pixmap is available via :attr:`pixmap` for coordinate
-    mapping by :class:`GridEditor`.
+    mapping by :class:`GridEditor`. The displayed image is always scaled
+    to fit the widget while preserving aspect ratio.
     """
 
     RENDER_DPI: int = 150  # resolution for display rendering
@@ -20,17 +21,14 @@ class PDFViewer(QWidget):
         super().__init__(parent)
         self._doc: fitz.Document | None = None
         self._page_index: int = 0
+        self._original_pixmap: QPixmap | None = None
 
-        self._label = QLabel(alignment=Qt.AlignmentFlag.AlignTop)
+        self._label = QLabel(alignment=Qt.AlignmentFlag.AlignCenter)
         self._label.setScaledContents(False)
-
-        scroll = QScrollArea()
-        scroll.setWidget(self._label)
-        scroll.setWidgetResizable(True)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.addWidget(scroll)
+        layout.addWidget(self._label)
 
     # ------------------------------------------------------------------
     # Public API
@@ -42,7 +40,8 @@ class PDFViewer(QWidget):
 
     @property
     def pixmap(self) -> QPixmap | None:
-        return self._label.pixmap()
+        """Full-resolution pixmap (unscaled) for coordinate mapping."""
+        return self._original_pixmap
 
     def open(self, path: str) -> None:
         self._doc = fitz.open(path)
@@ -58,6 +57,10 @@ class PDFViewer(QWidget):
         """Scale factor from PDF points to rendered pixels."""
         return self.RENDER_DPI / 72.0
 
+    def resizeEvent(self, event) -> None:  # noqa: ANN001
+        super().resizeEvent(event)
+        self._fit_pixmap()
+
     # ------------------------------------------------------------------
     # Internal
     # ------------------------------------------------------------------
@@ -71,5 +74,15 @@ class PDFViewer(QWidget):
         image = QImage(
             pix.samples, pix.width, pix.height, pix.stride, QImage.Format.Format_RGB888
         )
-        self._label.setPixmap(QPixmap.fromImage(image))
-        self._label.resize(pix.width, pix.height)
+        self._original_pixmap = QPixmap.fromImage(image)
+        self._fit_pixmap()
+
+    def _fit_pixmap(self) -> None:
+        if self._original_pixmap is None:
+            return
+        scaled = self._original_pixmap.scaled(
+            self._label.size(),
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation,
+        )
+        self._label.setPixmap(scaled)
