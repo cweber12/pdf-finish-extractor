@@ -1,14 +1,13 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
-from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QComboBox
-from PyQt6.QtGui import QPainter, QPen, QColor, QPixmap, QMouseEvent
-from PyQt6.QtCore import Qt, QPoint, QRect
+from PyQt6.QtCore import QPoint, QRect, Qt
+from PyQt6.QtGui import QColor, QMouseEvent, QPainter, QPen
+from PyQt6.QtWidgets import QComboBox, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
 
-from src.ui.pdf_viewer import PDFViewer
 from src.extraction.grid import CellType, Grid, PairDirection
+from src.ui.pdf_viewer import PDFViewer
 
 if TYPE_CHECKING:
     pass
@@ -26,7 +25,7 @@ _LINE_COLOR = QColor(220, 50, 50)
 class _OverlayWidget(QWidget):
     """Transparent overlay drawn on top of the PDF viewer for grid interaction."""
 
-    def __init__(self, grid_editor: "GridEditor") -> None:
+    def __init__(self, grid_editor: GridEditor) -> None:
         super().__init__(grid_editor)
         self._editor = grid_editor
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, False)

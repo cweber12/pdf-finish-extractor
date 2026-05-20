@@ -1,21 +1,20 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import (
-    QWidget,
-    QVBoxLayout,
     QHBoxLayout,
+    QHeaderView,
+    QLabel,
+    QProgressBar,
+    QPushButton,
     QTableWidget,
     QTableWidgetItem,
-    QLabel,
-    QPushButton,
-    QHeaderView,
-    QProgressBar,
+    QVBoxLayout,
+    QWidget,
 )
-from PyQt6.QtGui import QPixmap, QColor
-from PyQt6.QtCore import Qt
 
 if TYPE_CHECKING:
     from src.extraction.extractor import ExtractedPair
@@ -127,8 +126,8 @@ class PreviewPanel(QWidget):
         if not to_upload:
             return
 
-        from src.upload.worker_client import WorkerClient
         from src.extraction.image_processing import compress_image
+        from src.upload.worker_client import WorkerClient
 
         worker = WorkerClient()
 

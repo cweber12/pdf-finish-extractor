@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 import fitz  # PyMuPDF
-from PyQt6.QtGui import QPixmap, QImage
+from PyQt6.QtGui import QImage, QPixmap
 
-from src.extraction.grid import Grid, CellType, PairDirection
+from src.extraction.grid import CellType, Grid, PairDirection
 
 _RENDER_DPI = 150
 _SCALE = _RENDER_DPI / 72.0  # pixels per PDF point
@@ -121,6 +121,7 @@ class Extractor:
     ) -> QPixmap | None:
         try:
             import io
+
             from PIL import Image as PILImage
 
             img = PILImage.open(io.BytesIO(image_bytes))

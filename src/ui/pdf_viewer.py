@@ -1,10 +1,9 @@
 from __future__ import annotations
 
 import fitz  # PyMuPDF
-
-from PyQt6.QtWidgets import QWidget, QScrollArea, QLabel, QVBoxLayout
-from PyQt6.QtGui import QImage, QPixmap
 from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QImage, QPixmap
+from PyQt6.QtWidgets import QLabel, QScrollArea, QVBoxLayout, QWidget
 
 
 class PDFViewer(QWidget):

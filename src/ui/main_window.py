@@ -1,19 +1,16 @@
 from __future__ import annotations
 
 from PyQt6.QtWidgets import (
-    QMainWindow,
-    QWidget,
-    QHBoxLayout,
-    QVBoxLayout,
-    QToolBar,
-    QFileDialog,
-    QPushButton,
-    QLabel,
     QComboBox,
+    QFileDialog,
+    QHBoxLayout,
+    QLabel,
+    QMainWindow,
+    QPushButton,
+    QToolBar,
+    QWidget,
 )
-from PyQt6.QtCore import Qt
 
-from src.ui.pdf_viewer import PDFViewer
 from src.ui.grid_editor import GridEditor
 from src.ui.preview_panel import PreviewPanel
 from src.ui.profile_manager import ProfileManager

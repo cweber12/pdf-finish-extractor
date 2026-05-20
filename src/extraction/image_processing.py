@@ -4,7 +4,6 @@ import io
 
 from PIL import Image
 
-
 _MAX_DIMENSION = 1920
 _WEBP_QUALITY = 85
 

@@ -1,16 +1,16 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import StrEnum
 
 
-class CellType(str, Enum):
+class CellType(StrEnum):
     IMAGE = "image"
     TEXT = "text"
     IGNORED = "ignored"
 
 
-class PairDirection(str, Enum):
+class PairDirection(StrEnum):
     RIGHT = "right"
     LEFT = "left"
     BELOW = "below"
@@ -53,7 +53,7 @@ class Grid:
         }
 
     @classmethod
-    def from_dict(cls, data: dict) -> "Grid":
+    def from_dict(cls, data: dict) -> Grid:
         cell_types = {
             (entry["row"], entry["col"]): CellType(entry["type"])
             for entry in data.get("cells", [])
