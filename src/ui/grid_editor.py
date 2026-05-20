@@ -332,8 +332,8 @@ class GridEditor(QWidget):
         self._reposition_overlay()
 
     def _reposition_overlay(self) -> None:
-        geom = self._viewer.geometry()
-        self._overlay.setGeometry(geom)
+        top_left = self._viewer.mapTo(self, QPoint(0, 0))
+        self._overlay.setGeometry(QRect(top_left, self._viewer.size()))
         self._overlay.raise_()
         self._overlay.update()
 
