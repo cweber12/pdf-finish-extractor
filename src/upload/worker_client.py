@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import time
 
 import requests
 from dotenv import load_dotenv
@@ -8,9 +9,36 @@ from dotenv import load_dotenv
 load_dotenv()
 
 _API_BASE_URL = os.environ["API_BASE_URL"].rstrip("/")
-_API_SECRET = os.environ["API_SECRET"]
+_FIREBASE_API_KEY = os.environ["FIREBASE_API_KEY"]
+_FIREBASE_REFRESH_TOKEN = os.environ["FIREBASE_REFRESH_TOKEN"]
 _FIREBASE_UID = os.environ["FIREBASE_UID"]
 _PROJECT_ID = os.environ["PROJECT_ID"]
+
+_TOKEN_EXCHANGE_URL = "https://securetoken.googleapis.com/v1/token"
+
+# Cached ID token and its expiry (unix timestamp)
+_id_token: str = ""
+_token_expires_at: float = 0.0
+
+
+def _get_id_token() -> str:
+    """Return a valid Firebase ID token, refreshing if needed."""
+    global _id_token, _token_expires_at
+    if _id_token and time.time() < _token_expires_at - 60:
+        return _id_token
+    resp = requests.post(
+        f"{_TOKEN_EXCHANGE_URL}?key={_FIREBASE_API_KEY}",
+        data={
+            "grant_type": "refresh_token",
+            "refresh_token": _FIREBASE_REFRESH_TOKEN,
+        },
+        timeout=15,
+    )
+    resp.raise_for_status()
+    payload = resp.json()
+    _id_token = payload["id_token"]
+    _token_expires_at = time.time() + int(payload.get("expires_in", 3600))
+    return _id_token
 
 
 class WorkerClient:
@@ -22,7 +50,7 @@ class WorkerClient:
     Expected endpoint::
 
         POST /api/v1/materials/{materialId}/swatch
-        Authorization: Bearer <API_SECRET>
+        Authorization: Bearer <firebase_id_token>
         Content-Type: multipart/form-data
 
         file: <webp bytes>
@@ -38,7 +66,7 @@ class WorkerClient:
         url = f"{_API_BASE_URL}/api/v1/materials/{material_id}/swatch"
         response = requests.post(
             url,
-            headers={"Authorization": f"Bearer {_API_SECRET}"},
+            headers={"Authorization": f"Bearer {_get_id_token()}"},
             data={
                 "firebase_uid": _FIREBASE_UID,
                 "project_id": _PROJECT_ID,
