@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import io
 from typing import TYPE_CHECKING
 
+from PIL import Image as PILImage
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QColor
+from PyQt6.QtGui import QColor, QImage, QPixmap
 from PyQt6.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
@@ -18,6 +20,17 @@ from PyQt6.QtWidgets import (
 
 if TYPE_CHECKING:
     from src.extraction.extractor import ExtractedPair
+
+
+def _bytes_to_pixmap(image_bytes: bytes) -> QPixmap | None:
+    """Convert raw image bytes (PNG/WebP) to a QPixmap for display."""
+    try:
+        img = PILImage.open(io.BytesIO(image_bytes)).convert("RGB")
+        data = img.tobytes("raw", "RGB")
+        qimg = QImage(data, img.width, img.height, img.width * 3, QImage.Format.Format_RGB888)
+        return QPixmap.fromImage(qimg)
+    except Exception:
+        return None
 
 
 _DUPLICATE_BG = QColor(255, 230, 100)
@@ -80,9 +93,10 @@ class PreviewPanel(QWidget):
             # Thumbnail
             thumb_label = QLabel()
             thumb_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            if pair.image_pixmap:
+            pixmap = _bytes_to_pixmap(pair.image_bytes)
+            if pixmap:
                 thumb_label.setPixmap(
-                    pair.image_pixmap.scaled(
+                    pixmap.scaled(
                         64, 64,
                         Qt.AspectRatioMode.KeepAspectRatio,
                         Qt.TransformationMode.SmoothTransformation,

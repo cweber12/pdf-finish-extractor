@@ -3,7 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import fitz  # PyMuPDF
-from PyQt6.QtGui import QImage, QPixmap
 
 from src.extraction.grid import CellType, Grid, PairDirection
 
@@ -15,7 +14,6 @@ _SCALE = _RENDER_DPI / 72.0  # pixels per PDF point
 class ExtractedPair:
     material_id: str
     image_bytes: bytes
-    image_pixmap: QPixmap | None = None
     is_duplicate: bool = False
 
 
@@ -81,11 +79,9 @@ class Extractor:
                 v_pts[ci], h_pts[ri], v_pts[ci + 1], h_pts[ri + 1]
             )
             image_bytes = self._crop_image(page, rect)
-            pixmap = self._bytes_to_pixmap(image_bytes, rect, page)
             pairs.append(ExtractedPair(
                 material_id=material_id,
                 image_bytes=image_bytes,
-                image_pixmap=pixmap,
             ))
 
         return pairs
@@ -115,19 +111,3 @@ class Extractor:
         clip = page.rect & rect
         pix = page.get_pixmap(matrix=mat, clip=clip, alpha=False)
         return pix.tobytes("png")
-
-    def _bytes_to_pixmap(
-        self, image_bytes: bytes, rect: fitz.Rect, page: fitz.Page
-    ) -> QPixmap | None:
-        try:
-            import io
-
-            from PIL import Image as PILImage
-
-            img = PILImage.open(io.BytesIO(image_bytes))
-            img = img.convert("RGB")
-            data = img.tobytes("raw", "RGB")
-            qimg = QImage(data, img.width, img.height, img.width * 3, QImage.Format.Format_RGB888)
-            return QPixmap.fromImage(qimg)
-        except Exception:
-            return None
