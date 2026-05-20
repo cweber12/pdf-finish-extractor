@@ -57,6 +57,26 @@ class PDFViewer(QWidget):
         """Scale factor from PDF points to rendered pixels."""
         return self.RENDER_DPI / 72.0
 
+    def display_to_original_coords(self, x: int, y: int) -> tuple[int, int]:
+        """Map display (label) pixel coordinates to 150 DPI pixel coordinates."""
+        pm = self._label.pixmap()
+        if pm is None or self._original_pixmap is None or pm.width() == 0:
+            return x, y
+        ox = (self._label.width() - pm.width()) // 2
+        oy = (self._label.height() - pm.height()) // 2
+        scale = pm.width() / self._original_pixmap.width()
+        return round((x - ox) / scale), round((y - oy) / scale)
+
+    def original_to_display_coords(self, x: int, y: int) -> tuple[int, int]:
+        """Map 150 DPI pixel coordinates to display (label) pixel coordinates."""
+        pm = self._label.pixmap()
+        if pm is None or self._original_pixmap is None or self._original_pixmap.width() == 0:
+            return x, y
+        ox = (self._label.width() - pm.width()) // 2
+        oy = (self._label.height() - pm.height()) // 2
+        scale = pm.width() / self._original_pixmap.width()
+        return round(x * scale) + ox, round(y * scale) + oy
+
     def resizeEvent(self, event) -> None:  # noqa: ANN001
         super().resizeEvent(event)
         self._fit_pixmap()

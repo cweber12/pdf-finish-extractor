@@ -1,41 +1,48 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from enum import StrEnum
 
 
-class CellType(StrEnum):
-    IMAGE = "image"
-    TEXT = "text"
-    IGNORED = "ignored"
+@dataclass(frozen=True)
+class CellPair:
+    """An explicit pairing of one image cell with one text cell.
 
+    Cell addresses are ``(row_index, col_index)`` within the grid formed by
+    ``horizontal_lines`` and ``vertical_lines``.
+    """
 
-class PairDirection(StrEnum):
-    RIGHT = "right"
-    LEFT = "left"
-    BELOW = "below"
-    ABOVE = "above"
+    image_cell: tuple[int, int]
+    text_cell: tuple[int, int]
+
+    def to_dict(self) -> dict:
+        return {
+            "image_cell": list(self.image_cell),
+            "text_cell": list(self.text_cell),
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> CellPair:
+        return cls(
+            image_cell=tuple(data["image_cell"]),  # type: ignore[arg-type]
+            text_cell=tuple(data["text_cell"]),    # type: ignore[arg-type]
+        )
 
 
 @dataclass
 class Grid:
-    """Defines a grid layout over a PDF page.
+    """Defines a grid layout and explicit cell pairings for a PDF page.
 
     ``horizontal_lines`` and ``vertical_lines`` are pixel coordinates in the
-    rendered image space (at the viewer's DPI). They are converted to PDF
-    points by :class:`~src.extraction.extractor.Extractor` before use.
+    150 DPI rendered image space (the same space used by :class:`~src.extraction.extractor.Extractor`).
+    Divide by ``150 / 72 ≈ 2.0833`` to convert to PDF points.
 
-    ``cell_types`` maps ``(row_index, col_index)`` to a :class:`CellType`.
-    Any cell not in the mapping is treated as :attr:`CellType.IGNORED`.
-
-    ``pair_direction`` describes the spatial relationship from each image cell
-    to its associated text cell.
+    ``pairs`` explicitly lists which cells go together. Each :class:`CellPair`
+    names the image cell and the text cell (which holds the material ID).
     """
 
     horizontal_lines: list[int] = field(default_factory=list)
     vertical_lines: list[int] = field(default_factory=list)
-    cell_types: dict[tuple[int, int], CellType] = field(default_factory=dict)
-    pair_direction: PairDirection = PairDirection.RIGHT
+    pairs: list[CellPair] = field(default_factory=list)
 
     # ------------------------------------------------------------------
     # Serialisation
@@ -45,22 +52,13 @@ class Grid:
         return {
             "horizontal_lines": self.horizontal_lines,
             "vertical_lines": self.vertical_lines,
-            "cells": [
-                {"row": r, "col": c, "type": t.value}
-                for (r, c), t in self.cell_types.items()
-            ],
-            "pair_direction": self.pair_direction.value,
+            "pairs": [p.to_dict() for p in self.pairs],
         }
 
     @classmethod
     def from_dict(cls, data: dict) -> Grid:
-        cell_types = {
-            (entry["row"], entry["col"]): CellType(entry["type"])
-            for entry in data.get("cells", [])
-        }
         return cls(
-            horizontal_lines=data.get("horizontal_lines", []),
-            vertical_lines=data.get("vertical_lines", []),
-            cell_types=cell_types,
-            pair_direction=PairDirection(data.get("pair_direction", "right")),
+            horizontal_lines=list(data.get("horizontal_lines", [])),
+            vertical_lines=list(data.get("vertical_lines", [])),
+            pairs=[CellPair.from_dict(p) for p in data.get("pairs", [])],
         )

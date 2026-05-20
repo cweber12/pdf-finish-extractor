@@ -1,60 +1,49 @@
-import pytest
-
-from src.extraction.grid import CellType, Grid, PairDirection
+from src.extraction.grid import CellPair, Grid
 
 
 def make_simple_grid(**kwargs) -> Grid:
     defaults = dict(
         horizontal_lines=[100, 200],
         vertical_lines=[50, 150],
-        cell_types={(0, 0): CellType.IMAGE, (0, 1): CellType.TEXT},
-        pair_direction=PairDirection.RIGHT,
+        pairs=[CellPair(image_cell=(0, 0), text_cell=(0, 1))],
     )
     defaults.update(kwargs)
     return Grid(**defaults)
 
 
 class TestGridSerialisation:
-    def test_round_trip(self):
+    def test_round_trip(self) -> None:
         grid = make_simple_grid()
         restored = Grid.from_dict(grid.to_dict())
         assert restored.horizontal_lines == grid.horizontal_lines
         assert restored.vertical_lines == grid.vertical_lines
-        assert restored.cell_types == grid.cell_types
-        assert restored.pair_direction == grid.pair_direction
+        assert restored.pairs == grid.pairs
 
-    def test_to_dict_cell_keys_are_serialisable(self):
+    def test_to_dict_pairs_are_serialisable(self) -> None:
         grid = make_simple_grid()
         data = grid.to_dict()
-        # cell_types must be a list of dicts, not tuple keys
-        assert isinstance(data["cells"], list)
-        for cell in data["cells"]:
-            assert "row" in cell
-            assert "col" in cell
-            assert "type" in cell
+        assert isinstance(data["pairs"], list)
+        for p in data["pairs"]:
+            assert isinstance(p["image_cell"], list)
+            assert isinstance(p["text_cell"], list)
 
-    def test_from_dict_defaults_ignored_for_missing_cells(self):
-        data = {
-            "horizontal_lines": [100],
-            "vertical_lines": [50],
-            "cells": [],
-            "pair_direction": "right",
-        }
+    def test_from_dict_empty_pairs(self) -> None:
+        data = {"horizontal_lines": [100], "vertical_lines": [50], "pairs": []}
         grid = Grid.from_dict(data)
-        assert grid.cell_types == {}
+        assert grid.pairs == []
 
-    def test_from_dict_unknown_direction_raises(self):
-        data = {
-            "horizontal_lines": [],
-            "vertical_lines": [],
-            "cells": [],
-            "pair_direction": "diagonal",
-        }
-        with pytest.raises(ValueError):
-            Grid.from_dict(data)
+    def test_from_dict_missing_keys_use_defaults(self) -> None:
+        grid = Grid.from_dict({})
+        assert grid.horizontal_lines == []
+        assert grid.vertical_lines == []
+        assert grid.pairs == []
 
-    def test_all_directions_round_trip(self):
-        for direction in PairDirection:
-            grid = make_simple_grid(pair_direction=direction)
-            restored = Grid.from_dict(grid.to_dict())
-            assert restored.pair_direction == direction
+    def test_multiple_pairs_round_trip(self) -> None:
+        pairs = [
+            CellPair(image_cell=(0, 0), text_cell=(0, 1)),
+            CellPair(image_cell=(1, 0), text_cell=(1, 1)),
+            CellPair(image_cell=(0, 2), text_cell=(1, 2)),
+        ]
+        grid = Grid(horizontal_lines=[200], vertical_lines=[150, 300], pairs=pairs)
+        restored = Grid.from_dict(grid.to_dict())
+        assert restored.pairs == pairs

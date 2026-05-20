@@ -20,7 +20,7 @@ pdf-finish-extractor/
     │   ├── preview_panel.py  Shows extracted pairs; triggers upload.
     │   └── profile_manager.py  Saves/loads Grid profiles as JSON files.
     ├── extraction/           Pure extraction logic — no UI, no network.
-    │   ├── grid.py           Grid data model (lines, cell types, pair direction).
+    │   ├── grid.py           Grid data model (lines, explicit CellPair list).
     │   ├── extractor.py      Applies a Grid to a PDF; returns ExtractedPair list.
     │   └── image_processing.py  Compresses images to WebP (matches client rules).
     └── upload/               Network I/O — no extraction or UI logic.
@@ -41,7 +41,7 @@ User opens PDF
 PDFViewer (PyMuPDF → QPixmap)
       │
       ▼
-GridEditor — user draws lines, tags cells, sets pair direction
+GridEditor — user draws lines on overlay, clicks two cells to form explicit pairs
       │  saves/loads
       ▼
 ProfileManager (profiles/*.json)
@@ -76,9 +76,13 @@ WorkerClient.upload()
 
 Lines are stored in **rendered pixel space** at 150 DPI. The `Extractor` divides by `150/72 ≈ 2.083` to convert to PDF points before calling PyMuPDF. This means a profile saved on one machine is portable as long as the same DPI constant is used — `RENDER_DPI = 150` is defined in both `pdf_viewer.py` and `extractor.py`.
 
-### Proximity pairing
+`PDFViewer` renders at 150 DPI but scales the displayed image to fit the window. Two helper methods bridge these spaces: `display_to_original_coords()` converts a click position in the scaled label to 150 DPI pixel coordinates, and `original_to_display_coords()` converts back for drawing overlays. The `GridEditor` always converts mouse input to 150 DPI before storing, so stored line positions are always in the same space the `Extractor` expects.
 
-Each `image` cell is paired with the adjacent cell in the configured `pair_direction` (`right` / `left` / `below` / `above`). The direction is a single setting that applies to the entire grid. Catalogs where the text position relative to the image varies per row are not supported.
+### Explicit cell pairing
+
+Each `CellPair(image_cell, text_cell)` names an image cell and its corresponding text cell as `(row, col)` tuples. Pairs are built interactively: the user enters *Pair Cells* mode, clicks an image cell (highlighted orange as pending), then clicks the text cell — a numbered pair is created. Right-clicking a highlighted cell removes its pair. This replaces the old global `pair_direction` approach, which did not support catalogs where text positions vary per row.
+
+Pairs are stored in `Grid.pairs: list[CellPair]` and serialised as `[{"image_cell": [r, c], "text_cell": [r, c]}, ...]` in profile JSON. The `Extractor` iterates `grid.pairs` directly with no direction inference.
 
 ### Multi-page extraction
 

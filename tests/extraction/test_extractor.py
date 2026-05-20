@@ -5,15 +5,16 @@ from __future__ import annotations
 from pathlib import Path
 
 from src.extraction.extractor import Extractor
-from src.extraction.grid import CellType, Grid, PairDirection
+from src.extraction.grid import CellPair, Grid
 from tests.extraction.conftest import H_LINE_PX, MATERIAL_A, MATERIAL_B, V_LINE_PX
 
 # ---------------------------------------------------------------------------
 # Grid factories
 # ---------------------------------------------------------------------------
 
+
 def right_grid() -> Grid:
-    """Image cells in column 0, text cells in column 1, paired RIGHT.
+    """Explicit pairs: col-0 image → col-1 text, two rows.
 
     Matches the fixture layout: one horizontal split at H_LINE_PX,
     one vertical split at V_LINE_PX → 2 rows × 2 cols.
@@ -21,27 +22,26 @@ def right_grid() -> Grid:
     return Grid(
         horizontal_lines=[H_LINE_PX],
         vertical_lines=[V_LINE_PX],
-        cell_types={
-            (0, 0): CellType.IMAGE, (0, 1): CellType.TEXT,
-            (1, 0): CellType.IMAGE, (1, 1): CellType.TEXT,
-        },
-        pair_direction=PairDirection.RIGHT,
+        pairs=[
+            CellPair(image_cell=(0, 0), text_cell=(0, 1)),
+            CellPair(image_cell=(1, 0), text_cell=(1, 1)),
+        ],
     )
 
 
 def below_grid() -> Grid:
-    """Image cell top-left, text cell bottom-left, paired BELOW."""
+    """Image cell top-left, text cell bottom-left."""
     return Grid(
         horizontal_lines=[H_LINE_PX],
         vertical_lines=[V_LINE_PX],
-        cell_types={(0, 0): CellType.IMAGE, (1, 0): CellType.TEXT},
-        pair_direction=PairDirection.BELOW,
+        pairs=[CellPair(image_cell=(0, 0), text_cell=(1, 0))],
     )
 
 
 # ---------------------------------------------------------------------------
 # Extraction correctness
 # ---------------------------------------------------------------------------
+
 
 class TestExtractorRightPairing:
     def test_extracts_expected_material_ids(self, single_page_pdf: Path) -> None:
@@ -70,8 +70,7 @@ class TestExtractorRightPairing:
 class TestExtractorMultiPage:
     def test_multi_page_yields_pairs_from_every_page(self, multi_page_pdf: Path) -> None:
         pairs = Extractor(str(multi_page_pdf), right_grid()).extract_all_pages()
-        # 2 materials × 2 pages = 4 pairs
-        assert len(pairs) == 4
+        assert len(pairs) == 4  # 2 materials × 2 pages
 
     def test_multi_page_same_ids_repeated(self, multi_page_pdf: Path) -> None:
         pairs = Extractor(str(multi_page_pdf), right_grid()).extract_all_pages()
@@ -82,37 +81,31 @@ class TestExtractorMultiPage:
 
 class TestExtractorEdgeCases:
     def test_empty_text_cell_yields_no_pairs(self, empty_text_pdf: Path) -> None:
-        """If the text cell has no text, the image cell is silently skipped."""
+        """If the text cell has no text, the pair is silently skipped."""
         grid = Grid(
             horizontal_lines=[],
             vertical_lines=[V_LINE_PX],
-            cell_types={(0, 0): CellType.IMAGE, (0, 1): CellType.TEXT},
-            pair_direction=PairDirection.RIGHT,
+            pairs=[CellPair(image_cell=(0, 0), text_cell=(0, 1))],
         )
         pairs = Extractor(str(empty_text_pdf), grid).extract_all_pages()
         assert pairs == []
 
-    def test_ignored_cells_produce_no_pairs(self, single_page_pdf: Path) -> None:
-        """A grid where all cells are IGNORED should return nothing."""
+    def test_no_pairs_defined_yields_nothing(self, single_page_pdf: Path) -> None:
+        """A Grid with lines but no pairs should return nothing."""
         grid = Grid(
             horizontal_lines=[H_LINE_PX],
             vertical_lines=[V_LINE_PX],
-            cell_types={
-                (r, c): CellType.IGNORED for r in range(2) for c in range(2)
-            },
-            pair_direction=PairDirection.RIGHT,
+            pairs=[],
         )
         pairs = Extractor(str(single_page_pdf), grid).extract_all_pages()
         assert pairs == []
 
-    def test_no_adjacent_text_cell_skips_image(self, single_page_pdf: Path) -> None:
-        """Image cell with no text cell in pair_direction → skipped."""
+    def test_out_of_range_cell_is_skipped(self, single_page_pdf: Path) -> None:
+        """A CellPair referencing a non-existent cell index is silently skipped."""
         grid = Grid(
             horizontal_lines=[H_LINE_PX],
             vertical_lines=[V_LINE_PX],
-            # Only image cells, no text cells at all
-            cell_types={(0, 0): CellType.IMAGE, (1, 0): CellType.IMAGE},
-            pair_direction=PairDirection.RIGHT,
+            pairs=[CellPair(image_cell=(99, 99), text_cell=(0, 1))],
         )
         pairs = Extractor(str(single_page_pdf), grid).extract_all_pages()
         assert pairs == []
