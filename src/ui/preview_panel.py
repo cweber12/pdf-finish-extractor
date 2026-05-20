@@ -10,13 +10,14 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
     QLabel,
-    QProgressBar,
     QPushButton,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
     QWidget,
 )
+
+from src.ui import theme
 
 if TYPE_CHECKING:
     from src.extraction.extractor import ExtractedPair
@@ -33,14 +34,16 @@ def _bytes_to_pixmap(image_bytes: bytes) -> QPixmap | None:
         return None
 
 
-_DUPLICATE_BG = QColor(255, 230, 100)
+# Subtle tint for duplicate rows (dark-theme friendly amber)
+_DUPLICATE_BG = QColor(80, 55, 5)
 
 
 class PreviewPanel(QWidget):
     """Shows extracted (swatch thumbnail, material ID) pairs for review.
 
-    Duplicate rows (material ID already in the DB) are highlighted yellow.
-    The user can deselect rows before uploading.
+    Duplicate rows are tinted amber. The user can deselect rows before uploading.
+    Each row's Status column updates in place during upload; a toast summarises
+    the final result.
     """
 
     def __init__(self, parent: QWidget | None = None) -> None:
@@ -54,6 +57,8 @@ class PreviewPanel(QWidget):
 
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(12, 10, 12, 12)
+        layout.setSpacing(10)
 
         self._summary = QLabel()
         layout.addWidget(self._summary)
@@ -62,20 +67,20 @@ class PreviewPanel(QWidget):
         self._table.setHorizontalHeaderLabels(["", "Material ID", "Status"])
         self._table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         self._table.setColumnWidth(0, 72)
-        self._table.setColumnWidth(2, 90)
+        self._table.setColumnWidth(2, 96)
         self._table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self._table.setAlternatingRowColors(True)
+        self._table.verticalHeader().setVisible(False)
         layout.addWidget(self._table, stretch=1)
 
         btn_row = QHBoxLayout()
-        self._upload_btn = QPushButton("Upload Selected")
+        from PyQt6.QtGui import QIcon
+        self._upload_btn = QPushButton(QIcon(theme.icon_path("upload.svg")), "  Upload Selected")
+        self._upload_btn.setProperty("primary", True)
         self._upload_btn.clicked.connect(self._on_upload)
         btn_row.addStretch()
         btn_row.addWidget(self._upload_btn)
         layout.addLayout(btn_row)
-
-        self._progress = QProgressBar()
-        self._progress.setVisible(False)
-        layout.addWidget(self._progress)
 
     # ------------------------------------------------------------------
     # Public API
@@ -108,18 +113,23 @@ class PreviewPanel(QWidget):
             id_item = QTableWidgetItem(pair.material_id)
             self._table.setItem(row, 1, id_item)
 
-            # Status
+            # Status badge
             if pair.is_duplicate:
                 status = "update"
                 duplicates += 1
-                for col in range(3):
+                for col in (1, 2):
                     item = self._table.item(row, col)
                     if item:
                         item.setBackground(_DUPLICATE_BG)
             else:
                 status = "new"
+
             status_item = QTableWidgetItem(status)
             status_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            if pair.is_duplicate:
+                status_item.setForeground(QColor(theme.WARNING))
+            else:
+                status_item.setForeground(QColor(theme.TEXT_MUTED))
             self._table.setItem(row, 2, status_item)
 
             self._table.setRowHeight(row, 72)
@@ -127,7 +137,7 @@ class PreviewPanel(QWidget):
 
         new_count = len(pairs) - duplicates
         self._summary.setText(
-            f"{len(pairs)} pairs extracted — {new_count} new, {duplicates} will update (highlighted)"
+            f"{len(pairs)} pairs — {new_count} new, {duplicates} will update"
         )
 
     # ------------------------------------------------------------------
@@ -135,31 +145,49 @@ class PreviewPanel(QWidget):
     # ------------------------------------------------------------------
 
     def _on_upload(self) -> None:
-        selected_rows = {idx.row() for idx in self._table.selectedIndexes()}
-        to_upload = [self._pairs[r] for r in sorted(selected_rows) if r < len(self._pairs)]
+        selected_rows = sorted({idx.row() for idx in self._table.selectedIndexes()})
+        to_upload = [(r, self._pairs[r]) for r in selected_rows if r < len(self._pairs)]
         if not to_upload:
             return
 
         from src.extraction.image_processing import compress_image
         from src.upload.worker_client import WorkerClient
 
+        self._upload_btn.setEnabled(False)
         worker = WorkerClient()
+        inserted = updated = failed = 0
 
-        self._progress.setMaximum(len(to_upload))
-        self._progress.setValue(0)
-        self._progress.setVisible(True)
+        for row, pair in to_upload:
+            self._set_row_status(row, "uploading…", theme.TEXT_MUTED)
+            try:
+                compressed = compress_image(pair.image_bytes)
+                was_updated = worker.upload(compressed, pair.material_id)
+                if was_updated:
+                    updated += 1
+                    self._set_row_status(row, "✓ updated", theme.SUCCESS)
+                else:
+                    inserted += 1
+                    self._set_row_status(row, "✓ inserted", theme.SUCCESS)
+            except Exception:
+                failed += 1
+                self._set_row_status(row, "✗ failed", theme.ERROR)
 
-        inserted = updated = 0
-        for i, pair in enumerate(to_upload, 1):
-            compressed = compress_image(pair.image_bytes)
-            was_updated = worker.upload(compressed, pair.material_id)
-            if was_updated:
-                updated += 1
-            else:
-                inserted += 1
-            self._progress.setValue(i)
+        self._upload_btn.setEnabled(True)
 
-        self._progress.setVisible(False)
-        self._summary.setText(
-            f"Done — {inserted} inserted, {updated} updated."
-        )
+        total = inserted + updated
+        msg = f"{total} uploaded ({inserted} new, {updated} updated)"
+        if failed:
+            msg += f", {failed} failed"
+        self._summary.setText(msg)
+
+        from src.ui.toast import Toast
+        Toast.show_in(self.window(), msg, success=(failed == 0))
+
+    def _set_row_status(self, row: int, text: str, color: str) -> None:
+        item = self._table.item(row, 2)
+        if item is None:
+            item = QTableWidgetItem()
+            item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            self._table.setItem(row, 2, item)
+        item.setText(text)
+        item.setForeground(QColor(color))

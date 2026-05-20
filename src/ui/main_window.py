@@ -1,19 +1,31 @@
 from __future__ import annotations
 
+from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import (
     QComboBox,
     QFileDialog,
+    QFrame,
     QHBoxLayout,
     QLabel,
     QMainWindow,
     QPushButton,
-    QToolBar,
+    QVBoxLayout,
     QWidget,
 )
 
+from src.ui import theme
 from src.ui.grid_editor import GridEditor
 from src.ui.preview_panel import PreviewPanel
 from src.ui.profile_manager import ProfileManager
+
+
+def _vline() -> QFrame:
+    """Thin vertical separator for the action bar."""
+    line = QFrame()
+    line.setFrameShape(QFrame.Shape.VLine)
+    line.setFixedHeight(22)
+    return line
 
 
 class MainWindow(QMainWindow):
@@ -23,51 +35,79 @@ class MainWindow(QMainWindow):
         self.resize(1280, 900)
 
         self._profile_manager = ProfileManager()
-        self._build_toolbar()
         self._build_central()
 
     # ------------------------------------------------------------------
     # Layout
     # ------------------------------------------------------------------
 
-    def _build_toolbar(self) -> None:
-        toolbar = QToolBar("Main", self)
-        self.addToolBar(toolbar)
-
-        open_btn = QPushButton("Open PDF")
-        open_btn.clicked.connect(self._on_open_pdf)
-        toolbar.addWidget(open_btn)
-
-        toolbar.addSeparator()
-
-        toolbar.addWidget(QLabel("Profile:"))
-        self._profile_combo = QComboBox()
-        self._profile_combo.setMinimumWidth(180)
-        self._refresh_profiles()
-        self._profile_combo.currentTextChanged.connect(self._on_profile_selected)
-        toolbar.addWidget(self._profile_combo)
-
-        save_profile_btn = QPushButton("Save Profile")
-        save_profile_btn.clicked.connect(self._on_save_profile)
-        toolbar.addWidget(save_profile_btn)
-
-        toolbar.addSeparator()
-
-        extract_btn = QPushButton("Extract All Pages")
-        extract_btn.clicked.connect(self._on_extract)
-        toolbar.addWidget(extract_btn)
-
     def _build_central(self) -> None:
         central = QWidget()
         self.setCentralWidget(central)
-        layout = QHBoxLayout(central)
+
+        root = QVBoxLayout(central)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
+
+        root.addWidget(self._build_action_bar())
+
+        content = QWidget()
+        content_layout = QHBoxLayout(content)
+        content_layout.setContentsMargins(0, 0, 0, 0)
+        content_layout.setSpacing(0)
 
         self._grid_editor = GridEditor()
-        layout.addWidget(self._grid_editor, stretch=3)
+        self._grid_editor.open_requested.connect(self._on_open_pdf)
+        content_layout.addWidget(self._grid_editor, stretch=3)
+
+        sep = QFrame()
+        sep.setFrameShape(QFrame.Shape.VLine)
+        content_layout.addWidget(sep)
 
         self._preview_panel = PreviewPanel()
         self._preview_panel.setVisible(False)
-        layout.addWidget(self._preview_panel, stretch=2)
+        content_layout.addWidget(self._preview_panel, stretch=2)
+
+        root.addWidget(content, stretch=1)
+
+    def _build_action_bar(self) -> QWidget:
+        bar = QWidget()
+        bar.setObjectName("actionBar")
+        layout = QHBoxLayout(bar)
+        layout.setContentsMargins(12, 0, 12, 0)
+        layout.setSpacing(6)
+
+        # File group
+        open_btn = QPushButton(QIcon(theme.icon_path("folder-open.svg")), "  Open PDF")
+        open_btn.clicked.connect(self._on_open_pdf)
+        layout.addWidget(open_btn)
+
+        layout.addWidget(_vline())
+
+        # Profile group
+        profile_label = QLabel("Profile")
+        profile_label.setAlignment(Qt.AlignmentFlag.AlignVCenter)
+        layout.addWidget(profile_label)
+
+        self._profile_combo = QComboBox()
+        self._refresh_profiles()
+        self._profile_combo.currentTextChanged.connect(self._on_profile_selected)
+        layout.addWidget(self._profile_combo)
+
+        save_btn = QPushButton(QIcon(theme.icon_path("save.svg")), "  Save")
+        save_btn.clicked.connect(self._on_save_profile)
+        layout.addWidget(save_btn)
+
+        layout.addWidget(_vline())
+
+        # Extract group
+        extract_btn = QPushButton(QIcon(theme.icon_path("play.svg")), "  Extract All Pages")
+        extract_btn.setProperty("primary", True)
+        extract_btn.clicked.connect(self._on_extract)
+        layout.addWidget(extract_btn)
+
+        layout.addStretch()
+        return bar
 
     # ------------------------------------------------------------------
     # Slots

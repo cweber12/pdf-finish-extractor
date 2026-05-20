@@ -17,11 +17,19 @@ coordinate system used by the Extractor.
 
 from __future__ import annotations
 
-from PyQt6.QtCore import QPoint, QRect, Qt
-from PyQt6.QtGui import QBrush, QColor, QFont, QMouseEvent, QPainter, QPen
-from PyQt6.QtWidgets import QHBoxLayout, QPushButton, QVBoxLayout, QWidget
+from PyQt6.QtCore import QPoint, QRect, Qt, pyqtSignal
+from PyQt6.QtGui import QBrush, QColor, QFont, QIcon, QMouseEvent, QPainter, QPen, QPixmap
+from PyQt6.QtWidgets import (
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QStackedWidget,
+    QVBoxLayout,
+    QWidget,
+)
 
 from src.extraction.grid import CellPair, Grid
+from src.ui import theme
 from src.ui.pdf_viewer import PDFViewer
 
 # ------------------------------------------------------------------
@@ -208,6 +216,8 @@ class GridEditor(QWidget):
     All coordinates are stored in 150-DPI pixel space for extractor compatibility.
     """
 
+    open_requested = pyqtSignal()  # emitted by empty-state "Open PDF" button
+
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
 
@@ -237,27 +247,86 @@ class GridEditor(QWidget):
 
     def _build_controls(self) -> None:
         self._ctrl_bar = QWidget()
+        self._ctrl_bar.setObjectName("controlBar")
         bar = QHBoxLayout(self._ctrl_bar)
-        bar.setContentsMargins(4, 4, 4, 4)
+        bar.setContentsMargins(12, 0, 12, 0)
+        bar.setSpacing(8)
 
-        for label, mode in [("+ H Line", "add_h"), ("+ V Line", "add_v"), ("Pair Cells", "pairing")]:
-            btn = QPushButton(label)
+        # Segmented control for mutually-exclusive mode buttons
+        seg = QWidget()
+        seg.setObjectName("segmentedControl")
+        seg_layout = QHBoxLayout(seg)
+        seg_layout.setContentsMargins(0, 0, 0, 0)
+        seg_layout.setSpacing(0)
+
+        modes = [
+            (QIcon(theme.icon_path("h-line.svg")), "H Line", "add_h"),
+            (QIcon(theme.icon_path("v-line.svg")), "V Line", "add_v"),
+            (QIcon(theme.icon_path("link.svg")), "Pair Cells", "pairing"),
+        ]
+        for icon, label, mode in modes:
+            btn = QPushButton(icon, f"  {label}")
             btn.setCheckable(True)
             btn.clicked.connect(lambda _checked, m=mode, b=btn: self._set_mode(m, b))
             setattr(self, f"_btn_{mode}", btn)
-            bar.addWidget(btn)
+            seg_layout.addWidget(btn)
 
+        bar.addWidget(seg)
         bar.addStretch()
 
         clear_btn = QPushButton("Clear Grid")
+        clear_btn.setProperty("ghost", True)
         clear_btn.clicked.connect(self._clear_grid)
         bar.addWidget(clear_btn)
+
+    def _build_empty_state(self) -> QWidget:
+        w = QWidget()
+        inner = QVBoxLayout(w)
+        inner.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        inner.setSpacing(0)
+
+        icon_label = QLabel()
+        pix = QPixmap(theme.icon_path("document.svg"))
+        if not pix.isNull():
+            icon_label.setPixmap(
+                pix.scaled(80, 80, Qt.AspectRatioMode.KeepAspectRatio,
+                           Qt.TransformationMode.SmoothTransformation)
+            )
+        icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        inner.addWidget(icon_label)
+        inner.addSpacing(20)
+
+        title = QLabel("No PDF open")
+        title.setProperty("heading", True)
+        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        inner.addWidget(title)
+        inner.addSpacing(8)
+
+        subtitle = QLabel("Open a PDF file to define your extraction grid.")
+        subtitle.setProperty("body", True)
+        subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        inner.addWidget(subtitle)
+        inner.addSpacing(28)
+
+        open_btn = QPushButton(QIcon(theme.icon_path("folder-open.svg")), "  Open PDF")
+        open_btn.setProperty("primary", True)
+        open_btn.setFixedWidth(160)
+        open_btn.clicked.connect(self.open_requested)
+        inner.addWidget(open_btn, alignment=Qt.AlignmentFlag.AlignCenter)
+
+        return w
 
     def _build_layout(self) -> None:
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
         layout.addWidget(self._ctrl_bar)
-        layout.addWidget(self._viewer, stretch=1)
+
+        self._stack = QStackedWidget()
+        self._stack.addWidget(self._build_empty_state())  # index 0: no PDF
+        self._stack.addWidget(self._viewer)               # index 1: PDF loaded
+        self._stack.setCurrentIndex(0)
+        layout.addWidget(self._stack, stretch=1)
 
     def resizeEvent(self, _event) -> None:  # noqa: ANN001
         self._reposition_overlay()
@@ -275,6 +344,7 @@ class GridEditor(QWidget):
     def load_pdf(self, path: str) -> None:
         self.pdf_path = path
         self._viewer.open(path)
+        self._stack.setCurrentIndex(1)
         self._reposition_overlay()
 
     def current_profile(self) -> Grid | None:
