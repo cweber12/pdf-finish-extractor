@@ -1,9 +1,9 @@
 from __future__ import annotations
 
+import math
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from io import BytesIO
-import math
-from typing import Callable, Iterable
 
 import fitz  # PyMuPDF
 from PIL import Image

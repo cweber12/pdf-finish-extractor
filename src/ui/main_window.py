@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from PyQt6.QtCore import QObject, QThread, Qt, pyqtSignal, pyqtSlot
+from PyQt6.QtCore import QObject, Qt, QThread, pyqtSignal, pyqtSlot
 from PyQt6.QtGui import QAction, QCloseEvent, QIcon
 from PyQt6.QtWidgets import (
     QFileDialog,
@@ -17,6 +17,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from src.extraction.extractor import ExtractionProgress, Extractor
 from src.extraction.grid import Grid
 from src.ui import theme
 from src.ui.grid_editor import GridEditor
@@ -46,8 +47,6 @@ class _ExtractionWorker(QObject):
     def run(self) -> None:
         """Execute extraction in the worker thread."""
         try:
-            from src.extraction.extractor import Extractor, ExtractionProgress
-
             def on_progress(progress: ExtractionProgress) -> None:
                 self.progress.emit(
                     progress.page_index,

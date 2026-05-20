@@ -7,12 +7,13 @@ A desktop tool for importing material finish catalogs from PDF files into the FF
 ## Features
 
 - **PDF viewer** — open and navigate any PDF catalog inside the app
-- **Grid editor** — draw horizontal and vertical lines over the first page to divide it into cells; tag each cell as `image`, `text`, or `ignored`
-- **Proximity pairing** — set one direction (`right` / `below` / `left` / `above`) to automatically pair every image cell with its adjacent text cell (the material ID)
+- **Grid editor** — draw horizontal and vertical lines over the first page to divide it into cells; explicitly pair image cells with text cells containing material IDs
+- **Interactive pairing** — enter *Pair Cells* mode, click an image cell then a text cell to form pairs; supports complex layouts where text positions vary per row
 - **Named profiles** — save a grid layout under a name (e.g. "Supplier A – 2 column"); reload it instantly for future PDFs from the same supplier
-- **Batch extraction** — the page-1 grid is applied automatically to every subsequent page
+- **Batch extraction** — the page-1 grid is applied automatically to every subsequent page; extraction runs asynchronously to keep the UI responsive
+- **Progress & cancellation** — monitor extraction progress and cancel long-running jobs
 - **Preview panel** — review all extracted (thumbnail, ID) pairs before committing; duplicates are highlighted
-- **Upsert upload** — compress swatches to WebP, upload to R2, upsert rows in `image_assets` via a single `INSERT … ON CONFLICT DO UPDATE`
+- **Intelligent upload** — create materials if needed, upload swatch images via the Cloudflare Worker API to R2 + Neon
 
 ---
 
@@ -23,8 +24,8 @@ A desktop tool for importing material finish catalogs from PDF files into the FF
 | UI | PyQt6 |
 | PDF rendering + extraction | PyMuPDF (`fitz`) |
 | Image compression | Pillow |
-| R2 upload | boto3 (S3-compatible) |
-| Database | psycopg2 → Neon PostgreSQL |
+| Network | requests (HTTP) |
+| Database | psycopg2 → Neon PostgreSQL (read-only) |
 | Config | python-dotenv |
 
 ---
@@ -39,20 +40,26 @@ pdf-finish-extractor/
 ├── requirements.txt
 ├── profiles/                   # Named grid profiles saved as JSON
 │   └── example-2col.json
+├── docs/
+│   ├── ARCHITECTURE.md         # System design and data flow
+│   ├── MATERIAL_SWATCH_UPLOAD_GUIDE.md  # Upload API details
+│   └── adr/                    # Architecture decision records
 └── src/
     ├── ui/
-    │   ├── main_window.py      # Top-level window & layout
+    │   ├── main_window.py      # Top-level window, toolbar, extraction worker
     │   ├── pdf_viewer.py       # PDF canvas widget (PyMuPDF → QPixmap)
-    │   ├── grid_editor.py      # Line marker drawing & cell tagging
-    │   ├── preview_panel.py    # Extraction review (thumbnails + IDs)
-    │   └── profile_manager.py  # Save / load / select named profiles
+    │   ├── grid_editor.py      # Line drawing & explicit cell pairing
+    │   ├── preview_panel.py    # Extraction review (thumbnails + IDs) & upload
+    │   ├── profile_manager.py  # Save / load / select named profiles
+    │   ├── theme.py            # Global QSS stylesheet & design tokens
+    │   └── toast.py            # Auto-dismiss overlay notifications
     ├── extraction/
-    │   ├── grid.py             # Grid definition data model
-    │   ├── extractor.py        # PyMuPDF extraction logic
+    │   ├── grid.py             # Grid & CellPair data models
+    │   ├── extractor.py        # PyMuPDF extraction with progress/cancel
     │   └── image_processing.py # WebP compression via Pillow
     └── upload/
-        ├── r2_client.py        # Cloudflare R2 upload via boto3
-        └── neon_client.py      # Neon upsert via psycopg2
+        ├── worker_client.py    # Cloudflare Worker API (materials + images)
+        └── neon_client.py      # Neon read-only queries (duplicate detection)
 ```
 
 ---
@@ -62,11 +69,13 @@ pdf-finish-extractor/
 ### 1. Clone and install dependencies
 
 ```bash
-git clone https://github.com/your-org/pdf-finish-extractor.git
+git clone <repository>
 cd pdf-finish-extractor
 python -m venv .venv
-# Windows:
+# On Windows:
 .venv\Scripts\activate
+# On macOS/Linux:
+source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
@@ -78,22 +87,25 @@ Copy `.env.example` to `.env` and fill in the values:
 cp .env.example .env
 ```
 
-`.env.example`:
+`.env` requires:
 
 ```env
-# Neon PostgreSQL
+# Neon PostgreSQL (read-only for duplicate detection)
 DATABASE_URL=postgresql://user:password@your-neon-host/dbname
 
-# Cloudflare R2 (S3-compatible)
-R2_ACCOUNT_ID=your_account_id
-R2_ACCESS_KEY_ID=your_access_key
-R2_SECRET_ACCESS_KEY=your_secret_key
-R2_BUCKET_NAME=ffe-images
+# Cloudflare Worker API (handles R2 upload + DB writes)
+API_BASE_URL=https://your-worker-subdomain.workers.dev
+
+# Firebase authentication (OAuth via worker)
+FIREBASE_API_KEY=your_firebase_api_key
+FIREBASE_REFRESH_TOKEN=your_firebase_refresh_token
+FIREBASE_UID=your_firebase_uid
 
 # FFE context — scopes all uploaded materials to this owner + project
-FIREBASE_UID=your_firebase_uid
 PROJECT_ID=your_project_uuid
 ```
+
+⚠️ **Note:** Run `python scripts/login.py` to populate Firebase auth tokens interactively.
 
 ### 3. Run
 
@@ -111,9 +123,9 @@ Use **File → Open** to load a catalog PDF. The first page renders in the viewe
 
 ### Step 2 — Define the grid
 
-1. Click **Add Horizontal Line** or **Add Vertical Line** and drag lines across the page to divide it into cells.
-2. Click each cell to tag it: **Image**, **Text**, or **Ignored**.
-3. Set the **pairing direction** (e.g. `text is to the right of image`) in the toolbar. This tells the extractor which text cell holds the ID for each image cell.
+1. Click **+ H Line** or **+ V Line** and drag lines across the page to divide it into cells.
+2. Click **Pair Cells** mode, then click an image cell (highlighted in orange) and the text cell containing its material ID to form a pair.
+3. Repeat for each image in the grid. Right-click a highlighted cell to remove its pair.
 
 ### Step 3 — Save a profile (optional but recommended)
 
@@ -121,20 +133,26 @@ Click **Save Profile**, give it a name (e.g. `Supplier A – 2col`). Next time y
 
 ### Step 4 — Extract
 
-Click **Extract All Pages**. The app applies the grid to every page and opens the **Preview Panel** showing all extracted (swatch thumbnail, material ID) pairs.
+Click **▶ Extract All Pages**. The app:
+1. Applies the grid to every page
+2. Runs extraction asynchronously on a background thread (UI remains responsive)
+3. Emits progress updates as each page completes
+4. Opens the **Preview Panel** showing all extracted pairs
 
-- Rows with a material ID already present in the database are **highlighted in yellow** — they will be upserted (overwritten).
+In the preview:
+- Rows with a material ID already in the database are **highlighted amber** — they will be updated.
 - Deselect any row you want to skip.
 
 ### Step 5 — Upload
 
 Click **Upload Selected**. The app:
 
-1. Compresses each swatch to WebP (max 1920 px, 85% quality)
-2. Uploads to R2 at `users/{uid}/projects/{projectId}/materials/{materialId}/{imageId}.webp`
-3. Upserts a row in `image_assets` in Neon
+1. For each row, ensures the material exists in the database (creates if new)
+2. Compresses each swatch to WebP (max 1920 px, 85% quality)
+3. POSTs the image to the Cloudflare Worker API
+4. Worker stores the image in R2 and upserts the record in Neon
 
-A progress bar tracks the upload. A summary confirms how many were inserted vs updated.
+Row-by-row status updates show progress. A toast notification summarizes the final result (inserted vs updated vs failed).
 
 ---
 
@@ -147,41 +165,55 @@ Profiles are plain JSON stored in `profiles/`. You can edit them directly.
   "name": "Supplier A – 2col",
   "horizontal_lines": [120, 240, 360, 480],
   "vertical_lines": [30, 180, 330, 480],
-  "cells": [
-    { "row": 0, "col": 0, "type": "image" },
-    { "row": 0, "col": 1, "type": "text" },
-    { "row": 0, "col": 2, "type": "image" },
-    { "row": 0, "col": 3, "type": "text" }
-  ],
-  "pair_direction": "right"
+  "pairs": [
+    {"image_cell": [0, 0], "text_cell": [0, 1]},
+    {"image_cell": [0, 2], "text_cell": [0, 3]}
+  ]
 }
 ```
 
-`horizontal_lines` and `vertical_lines` are y/x coordinates in PDF points (72 pts = 1 inch). The `cells` array describes one representative row — the pattern repeats for all rows on every page.
+- `horizontal_lines` and `vertical_lines` are y/x coordinates in **150-DPI rendered pixel space** (portable across machines using the same DPI constant)
+- `pairs` lists explicit image→text cell mappings as `[row, col]` tuples (supports complex layouts where text positions vary per row)
 
 ---
 
-## R2 Path & Database Schema
+## Upload Workflow & Database Integration
 
-Images are stored at:
+See [docs/MATERIAL_SWATCH_UPLOAD_GUIDE.md](docs/MATERIAL_SWATCH_UPLOAD_GUIDE.md) for detailed API documentation.
 
-```
-users/{FIREBASE_UID}/projects/{PROJECT_ID}/materials/{materialId}/{imageId}.webp
-```
+**High-level:**
+1. **Lookup or create material** — `POST /api/v1/projects/{projectId}/materials` with composite ID
+2. **Upload swatch image** — `POST /api/v1/images?entity_type=material&entity_id={materialUUID}` with WebP bytes
+3. **Worker handles R2 + Neon** — stores at `users/{FIREBASE_UID}/projects/{PROJECT_ID}/materials/{materialId}/{imageId}.webp` and upserts the database record
 
-Where `materialId` is the text extracted from the PDF and `imageId` is a freshly generated UUID per image.
-
-The `image_assets` row uses `room_id = NULL` and `item_id = NULL` (materials scope). Duplicate detection is keyed on `r2_key` (the full R2 path), which is `UNIQUE` in the schema.
+Duplicate detection queries `image_assets` by `alt_text` (material ID) to highlight existing records before upload.
 
 ---
 
 ## Dependencies
 
 ```
-PyQt6
-PyMuPDF
-Pillow
-boto3
-psycopg2-binary
-python-dotenv
+PyQt6>=6.6.0          # Desktop UI
+PyMuPDF>=1.24.0       # PDF rendering & extraction
+Pillow>=10.0.0        # Image compression to WebP
+requests>=2.32.0      # HTTP to Cloudflare Worker API
+psycopg2-binary>=2.9.0 # Neon PostgreSQL (read-only)
+python-dotenv>=1.0.0  # Load .env credentials
+```
+
+## Development
+
+**Run linter:**
+```bash
+.venv\Scripts\ruff check src/ tests/ scripts/
+```
+
+**Run tests:**
+```bash
+.venv\Scripts\pytest tests/ -v
+```
+
+**Type checking (strict mode):**
+```bash
+.venv\Scripts\mypy src/ tests/
 ```

@@ -19,6 +19,18 @@ This project extracts images, text, and image/text pairs from PDFs. Keep the imp
 - Prefer deterministic extraction based on coordinates and layout rules over fragile assumptions about PDF text order.
 - Add small sample fixtures when testing PDF behavior. Do not commit large PDFs unless necessary.
 
+### Asynchronous extraction
+
+Extraction runs on a `QThread` worker (`_ExtractionWorker`) to keep the UI responsive. The worker emits progress/finished/failed signals. Test workers with `monkeypatch` to mock signal emits, or use a minimal test PDF if testing the full extraction pipeline. Do not block the main thread during PDF rendering or large batch operations.
+
+### Two-step material upload
+
+Upload workflow via Cloudflare Worker API:
+1. **GET /api/v1/projects/{projectId}/materials** to search for material by composite ID, reuse UUID if found
+2. **POST /api/v1/images** with entity_type=material and entity_id={materialUUID}
+
+Store no R2/boto3 credentials locally. Use Firebase token refresh if token expires. Test with mock HTTP responses via `requests_mock` or a test fixture server.
+
 ## Documentation Rules
 
 - Maintain an architecture document for the project.

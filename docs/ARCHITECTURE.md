@@ -41,20 +41,26 @@ User opens PDF
 PDFViewer (PyMuPDF → QPixmap)
       │
       ▼
-GridEditor — user draws lines on overlay, clicks two cells to form explicit pairs
+GridEditor — user draws lines on overlay, enters Pair Cells mode to link image/text cells
       │  saves/loads
       ▼
 ProfileManager (profiles/*.json)
       │  Grid
       ▼
-Extractor.extract_all_pages()
-  ├── converts pixel coords → PDF points (÷ RENDER_DPI/72)
-  ├── clips each image cell → PNG bytes via PyMuPDF
-  ├── reads text from paired text cell via page.get_text("text", clip=rect)
-  └── returns List[ExtractedPair]
+MainWindow spawns _ExtractionWorker on QThread
       │
       ▼
-NeonClient.material_ids_in_db()   ← marks duplicates before preview
+_ExtractionWorker.run() (off main thread)
+  ├─ Extractor.extract_all_pages()
+  │  ├─ for each page:
+  │  │  ├─ render page to image at 150 DPI
+  │  │  ├─ for each pair: clip image cell → PNG bytes, extract text from text cell
+  │  │  └─ emit progress signal
+  │  └─ return List[ExtractedPair]
+  ├─ emit finished signal with pairs
+      │
+      ▼
+NeonClient.material_ids_in_db() — marks duplicates for preview
       │
       ▼
 PreviewPanel — user reviews, deselects rows, clicks Upload
@@ -63,14 +69,31 @@ PreviewPanel — user reviews, deselects rows, clicks Upload
 image_processing.compress_image() — WebP, max 1920 px, 85% quality
       │
       ▼
-WorkerClient.upload()
-  POST /api/v1/materials/{materialId}/swatch
-  → Worker uploads to R2 + upserts image_assets row in Neon
+WorkerClient.upload() (per row, with inline status updates)
+  ├─ resolve material UUID via GET /api/v1/projects/{projectId}/materials
+  ├─ if not found: POST to create material record
+  └─ POST /api/v1/images?entity_type=material&entity_id={uuid} with WebP bytes
+      │
+      ▼
+Worker (backend) — upload to R2, upsert image_assets row in Neon
 ```
 
 ---
 
 ## Key Design Decisions
+
+### Asynchronous extraction
+
+Extraction is dispatched to a `QThread` worker (`_ExtractionWorker`) via `MainWindow._on_extract()`. This prevents the UI from freezing during large multi-page PDFs. The worker emits signals:
+- `progress(page_index, page_count, pairs_extracted)` — fires after each page
+- `finished(pairs, was_cancelled)` — on completion or user cancel
+- `failed(error_msg)` — on exception
+
+Cancel requests are checked between pages, allowing graceful interruption without corruption.
+
+### Page rendering optimization
+
+Instead of rendering every swatch crop separately, the `Extractor` renders each page once at 150 DPI to a full-page image, then clips every swatch from that cached image. Text extraction data is also cached per page to avoid re-parsing. This dramatically reduces extraction time for multi-swatch catalogs.
 
 ### Grid coordinate space
 
@@ -84,6 +107,15 @@ Each `CellPair(image_cell, text_cell)` names an image cell and its corresponding
 
 Pairs are stored in `Grid.pairs: list[CellPair]` and serialised as `[{"image_cell": [r, c], "text_cell": [r, c]}, ...]` in profile JSON. The `Extractor` iterates `grid.pairs` directly with no direction inference.
 
+### Two-step material upload
+
+Uploads use a two-step workflow per `docs/MATERIAL_SWATCH_UPLOAD_GUIDE.md`:
+
+1. **Material resolution** — `GET /api/v1/projects/{projectId}/materials` to search for the material by composite ID. If found, reuse its UUID; otherwise `POST` to create a minimal record and use its new UUID.
+2. **Image upload** — `POST /api/v1/images?entity_type=material&entity_id={uuid}&alt_text=Swatch` with the WebP bytes.
+
+The Cloudflare Worker backend handles the R2 upload and Neon database upsert, so the Python client needs no S3 credentials or direct database write access.
+
 ### Multi-page extraction
 
 The grid defined on page 1 is applied unchanged to every subsequent page. No per-page adjustment is made. If a page has fewer filled cells than the grid implies (e.g. the last page of a catalog), cells that yield empty text are silently skipped — no pair is emitted for them.
@@ -94,13 +126,13 @@ Before the preview panel is shown, `NeonClient.material_ids_in_db()` queries the
 
 ### Upload path
 
-Images are uploaded via the existing Worker API rather than directly to R2, so no R2 API credentials are stored locally. The Worker constructs the R2 key as:
+Images are uploaded via the Cloudflare Worker API (not direct R2), ensuring security by keeping credentials off the client. The Worker constructs the R2 key as:
 
 ```
-users/{uid}/projects/{projectId}/materials/{materialId}/{imageId}.webp
+users/{FIREBASE_UID}/projects/{PROJECT_ID}/materials/{materialId}/{imageId}.webp
 ```
 
-and inserts/upserts the `image_assets` row. The Python client only needs `API_BASE_URL`, `API_SECRET`, `FIREBASE_UID`, and `PROJECT_ID`.
+and inserts or upserts the `image_assets` row. The Python client only needs `API_BASE_URL`, `FIREBASE_API_KEY`, `FIREBASE_REFRESH_TOKEN`, `FIREBASE_UID`, and `PROJECT_ID`.
 
 ### Image compression
 

@@ -25,7 +25,6 @@ def compress_image(image_bytes: bytes) -> bytes:
         return image_bytes
 
     with Image.open(io.BytesIO(image_bytes)) as source:
-        source_format = (source.format or "").upper()
         image = ImageOps.exif_transpose(source)
 
         if image.mode not in ("RGB", "RGBA"):
