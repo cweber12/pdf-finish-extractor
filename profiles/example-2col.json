@@ -1,0 +1,12 @@
+{
+  "name": "example-2col",
+  "horizontal_lines": [120, 240, 360, 480],
+  "vertical_lines": [30, 180, 330, 480],
+  "cells": [
+    { "row": 0, "col": 0, "type": "image" },
+    { "row": 0, "col": 1, "type": "text" },
+    { "row": 0, "col": 2, "type": "image" },
+    { "row": 0, "col": 3, "type": "text" }
+  ],
+  "pair_direction": "right"
+}
