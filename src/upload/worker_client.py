@@ -42,37 +42,58 @@ def _get_id_token() -> str:
 
 
 class WorkerClient:
-    """Uploads a swatch image via the Cloudflare Worker API.
+    """Uploads a swatch image for a material.
 
-    The Worker handles both the R2 upload and the ``image_assets`` DB insert/upsert,
-    so no direct R2 credentials or DB write access is needed here.
+    Two-step workflow per docs/MATERIAL_SWATCH_UPLOAD_GUIDE.md:
 
-    Expected endpoint::
+    1. Resolve the material's UUID via
+       ``GET /api/v1/projects/{projectId}/materials`` (search by composite ID).
+       If not found, create it via
+       ``POST /api/v1/projects/{projectId}/materials``.
 
-        POST /api/v1/materials/{materialId}/swatch
-        Authorization: Bearer <firebase_id_token>
-        Content-Type: multipart/form-data
+    2. Upload the WebP bytes via
+       ``POST /api/v1/images?entity_type=material&entity_id={uuid}&alt_text=Swatch``
 
-        file: <webp bytes>
-        firebase_uid: <uid>
-        project_id: <project_id>
-
-    The Worker returns ``{"inserted": true}`` or ``{"inserted": false}`` to
-    indicate whether the row was new or updated.
+    ``upload()`` returns ``True`` when the material already existed (swatch
+    updated), ``False`` when a new material record was created.
     """
 
+    def _resolve_material_uuid(self, material_id: str, token: str) -> tuple[str, bool]:
+        """Return (material_uuid, was_existing).
+
+        Searches the project's material list for *material_id*. Creates the
+        record if absent.
+        """
+        headers = {"Authorization": f"Bearer {token}"}
+        base = f"{_API_BASE_URL}/api/v1/projects/{_PROJECT_ID}/materials"
+
+        resp = requests.get(base, headers=headers, timeout=15)
+        resp.raise_for_status()
+        for mat in resp.json().get("materials", []):
+            if mat.get("materialId") == material_id:
+                return mat["id"], True
+
+        # Not found — create a minimal record
+        resp = requests.post(
+            base,
+            headers={**headers, "Content-Type": "application/json"},
+            json={"name": f"Material {material_id}", "material_id": material_id},
+            timeout=15,
+        )
+        resp.raise_for_status()
+        return resp.json()["material"]["id"], False
+
     def upload(self, webp_bytes: bytes, material_id: str) -> bool:
-        """Upload *webp_bytes* for *material_id*. Returns ``True`` if the row was updated."""
-        url = f"{_API_BASE_URL}/api/v1/materials/{material_id}/swatch"
-        response = requests.post(
-            url,
-            headers={"Authorization": f"Bearer {_get_id_token()}"},
-            data={
-                "firebase_uid": _FIREBASE_UID,
-                "project_id": _PROJECT_ID,
-            },
+        """Upload *webp_bytes* for *material_id*. Returns ``True`` if the material already existed."""
+        token = _get_id_token()
+        material_uuid, was_existing = self._resolve_material_uuid(material_id, token)
+
+        resp = requests.post(
+            f"{_API_BASE_URL}/api/v1/images",
+            params={"entity_type": "material", "entity_id": material_uuid, "alt_text": "Swatch"},
+            headers={"Authorization": f"Bearer {token}"},
             files={"file": (f"{material_id}.webp", webp_bytes, "image/webp")},
             timeout=30,
         )
-        response.raise_for_status()
-        return not response.json().get("inserted", True)
+        resp.raise_for_status()
+        return was_existing

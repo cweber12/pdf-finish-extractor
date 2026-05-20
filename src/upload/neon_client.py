@@ -22,13 +22,21 @@ class NeonClient:
         self._conn = psycopg2.connect(_DATABASE_URL)
 
     def material_ids_in_db(self, material_ids: list[str]) -> set[str]:
-        """Return the subset of *material_ids* that already have rows in ``image_assets``."""
+        """Return the subset of *material_ids* that already have swatch images."""
         if not material_ids:
             return set()
+        
         with self._conn.cursor() as cur:
             cur.execute(
-                "SELECT alt_text FROM image_assets WHERE owner_uid = %s AND project_id = %s"
-                " AND alt_text = ANY(%s)",
+                """
+                SELECT m.material_id 
+                FROM image_assets ia
+                JOIN materials m ON ia.material_id = m.id
+                WHERE ia.owner_uid = %s 
+                AND ia.project_id = %s 
+                AND m.material_id = ANY(%s)
+                AND ia.entity_type = 'material'
+                """,
                 (_FIREBASE_UID, _PROJECT_ID, material_ids),
             )
             return {row[0] for row in cur.fetchall()}

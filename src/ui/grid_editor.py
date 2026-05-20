@@ -2,12 +2,10 @@
 
 Modes
 -----
-idle     – arrow cursor; drag existing lines by clicking within 8 px;
-           right-click near a line to remove it.
-add_h    – crosshair cursor; click-drag to place a horizontal line,
-           release to set it.
-add_v    – crosshair cursor; click-drag to place a vertical line,
-           release to set it.
+idle     – arrow cursor; drag existing lines by clicking near the line or its
+           handle; right-click near a line to remove it.
+add_h    – crosshair cursor; click-drag to place a horizontal line.
+add_v    – crosshair cursor; click-drag to place a vertical line.
 pairing  – click an image cell then a text cell to create a pair;
            right-click on a cell to remove any pair that contains it.
 
@@ -17,7 +15,7 @@ coordinate system used by the Extractor.
 
 from __future__ import annotations
 
-from PyQt6.QtCore import QPoint, QRect, Qt, pyqtSignal
+from PyQt6.QtCore import QPoint, QRect, QRectF, Qt, pyqtSignal
 from PyQt6.QtGui import QBrush, QColor, QFont, QIcon, QMouseEvent, QPainter, QPen, QPixmap
 from PyQt6.QtWidgets import (
     QHBoxLayout,
@@ -36,21 +34,27 @@ from src.ui.pdf_viewer import PDFViewer
 # Visual constants
 # ------------------------------------------------------------------
 
-_LINE_COLOR = QColor(220, 50, 50)
-_LINE_SHADOW = QColor(0, 0, 0, 80)
-_PREVIEW_COLOR = QColor(220, 50, 50, 120)
-_HANDLE_COLOR = QColor(220, 50, 50)
-_HANDLE_RADIUS = 7          # px
-_LINE_HIT_DIST = 9          # px – distance that triggers drag / remove
-_PENDING_FILL = QColor(255, 140, 0, 75)
-_HOVER_FILL = QColor(255, 230, 0, 50)
+_LINE_COLOR = QColor(theme.GRID_LINE)
+_LINE_ACTIVE = QColor(theme.GRID_LINE_ACTIVE)
+_LINE_SHADOW = QColor(0, 0, 0, 95)
+_PREVIEW_COLOR = QColor(244, 63, 94, 145)
+_HANDLE_COLOR = QColor(theme.GRID_HANDLE)
+_HANDLE_INNER = QColor(theme.GRID_HANDLE_INNER)
+_HANDLE_BORDER = QColor(255, 255, 255, 210)
+_PAGE_BORDER = QColor(148, 163, 184, 90)
+_PAGE_SHADOW = QColor(0, 0, 0, 90)
+_HANDLE_RADIUS = 7
+_LINE_HIT_DIST = 10
+
+_PENDING_FILL = QColor(245, 158, 11, 64)
+_HOVER_FILL = QColor(148, 163, 184, 42)
 
 # Per-pair fill colours: (image_cell_fill, text_cell_fill)
 _PAIR_FILLS: list[tuple[QColor, QColor]] = [
-    (QColor(0, 120, 215, 65),  QColor(0, 160, 50, 65)),
-    (QColor(180, 60, 200, 65), QColor(0, 160, 160, 65)),
-    (QColor(200, 80, 0, 65),   QColor(150, 0, 0, 65)),
-    (QColor(0, 90, 170, 65),   QColor(120, 120, 0, 65)),
+    (QColor(56, 189, 248, 48), QColor(34, 197, 94, 44)),
+    (QColor(168, 85, 247, 45), QColor(20, 184, 166, 45)),
+    (QColor(251, 146, 60, 48), QColor(244, 63, 94, 42)),
+    (QColor(96, 165, 250, 46), QColor(250, 204, 21, 38)),
 ]
 
 
@@ -58,31 +62,78 @@ _PAIR_FILLS: list[tuple[QColor, QColor]] = [
 # Helpers
 # ------------------------------------------------------------------
 
-def _draw_handle(painter: QPainter, cx: int, cy: int) -> None:
-    painter.setBrush(QBrush(_HANDLE_COLOR))
-    painter.setPen(QPen(QColor(255, 255, 255), 1.5))
-    painter.drawEllipse(QPoint(cx, cy), _HANDLE_RADIUS, _HANDLE_RADIUS)
+
+def _draw_handle(
+    painter: QPainter,
+    cx: int,
+    cy: int,
+    orientation: str,
+    active: bool = False,
+) -> None:
+    """Draw a pill-shaped drag handle with visible grip marks."""
+    if orientation == "h":
+        rect = QRectF(cx - 17, cy - 8, 34, 16)
+        grip_x = cx - 6
+        grip_y = cy - 3
+        grip_w = 12
+        grip_h = 2
+        offsets = [0, 4, 8]
+    else:
+        rect = QRectF(cx - 8, cy - 17, 16, 34)
+        grip_x = cx - 3
+        grip_y = cy - 6
+        grip_w = 2
+        grip_h = 12
+        offsets = [0, 4, 8]
+
+    painter.setPen(QPen(_HANDLE_BORDER if active else QColor(255, 255, 255, 170), 1.2))
+    painter.setBrush(QBrush(QColor(255, 255, 255, 245) if active else _HANDLE_COLOR))
+    painter.drawRoundedRect(rect, 8, 8)
+
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.setBrush(QBrush(_LINE_ACTIVE if active else _HANDLE_INNER))
+    for offset in offsets:
+        if orientation == "h":
+            painter.drawRoundedRect(QRectF(grip_x, grip_y + offset, grip_w, grip_h), 1, 1)
+        else:
+            painter.drawRoundedRect(QRectF(grip_x + offset, grip_y, grip_w, grip_h), 1, 1)
 
 
 def _draw_badge(painter: QPainter, cx: int, cy: int, text: str) -> None:
-    r = 11
-    painter.setBrush(QBrush(QColor(0, 0, 0, 180)))
-    painter.setPen(Qt.PenStyle.NoPen)
+    r = 12
+    painter.setBrush(QBrush(QColor(15, 23, 42, 225)))
+    painter.setPen(QPen(QColor(255, 255, 255, 120), 1))
     painter.drawEllipse(QPoint(cx, cy), r, r)
+
     f = QFont()
     f.setPointSize(7)
     f.setBold(True)
     painter.setFont(f)
-    painter.setPen(QColor(255, 255, 255))
+    painter.setPen(QColor(248, 250, 252))
     painter.drawText(QRect(cx - r, cy - r, 2 * r, 2 * r), Qt.AlignmentFlag.AlignCenter, text)
+
+
+def _draw_page_frame(painter: QPainter, page_rect: QRect) -> None:
+    if page_rect.isNull() or page_rect.width() <= 0 or page_rect.height() <= 0:
+        return
+
+    shadow_rect = page_rect.adjusted(2, 2, 2, 2)
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.setBrush(QBrush(_PAGE_SHADOW))
+    painter.drawRect(shadow_rect)
+
+    painter.setBrush(Qt.BrushStyle.NoBrush)
+    painter.setPen(QPen(_PAGE_BORDER, 1))
+    painter.drawRect(page_rect.adjusted(0, 0, -1, -1))
 
 
 # ------------------------------------------------------------------
 # Overlay widget
 # ------------------------------------------------------------------
 
+
 class _OverlayWidget(QWidget):
-    """Transparent overlay that renders the grid and handles all mouse events."""
+    """Transparent overlay that renders the grid and handles mouse events."""
 
     def __init__(self, editor: GridEditor) -> None:
         super().__init__(editor)
@@ -104,8 +155,9 @@ class _OverlayWidget(QWidget):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
-        # Compute display-space grid boundaries
         h_d, v_d = e._grid_display_boundaries()
+        page_rect = _page_rect_display(h_d, v_d)
+        _draw_page_frame(painter, page_rect)
 
         # --- Cell fills: paired cells ---
         for idx, pair in enumerate(e._pairs):
@@ -134,23 +186,31 @@ class _OverlayWidget(QWidget):
         # --- Grid lines ---
         shadow_pen = QPen(_LINE_SHADOW, 4)
         line_pen = QPen(_LINE_COLOR, 2)
-        # h_d[1:-1] = user-placed H lines (skip 0 and page-bottom boundary)
-        for y_d in h_d[1:-1]:
-            painter.setPen(shadow_pen)
-            painter.drawLine(0, y_d, self.width(), y_d)
-            painter.setPen(line_pen)
-            painter.drawLine(0, y_d, self.width(), y_d)
-        for x_d in v_d[1:-1]:
-            painter.setPen(shadow_pen)
-            painter.drawLine(x_d, 0, x_d, self.height())
-            painter.setPen(line_pen)
-            painter.drawLine(x_d, 0, x_d, self.height())
+        active_pen = QPen(_LINE_ACTIVE, 3)
+        hovered = e._hovered_line
+        dragging = e._dragging
 
-        # --- Handles ---
-        for y_d in h_d[1:-1]:
-            _draw_handle(painter, _HANDLE_RADIUS + 2, y_d)
-        for x_d in v_d[1:-1]:
-            _draw_handle(painter, x_d, _HANDLE_RADIUS + 2)
+        for idx, y_d in enumerate(h_d[1:-1]):
+            active = hovered == ("h", idx) or dragging == ("h", idx)
+            painter.setPen(shadow_pen)
+            painter.drawLine(page_rect.left(), y_d, page_rect.right(), y_d)
+            painter.setPen(active_pen if active else line_pen)
+            painter.drawLine(page_rect.left(), y_d, page_rect.right(), y_d)
+
+        for idx, x_d in enumerate(v_d[1:-1]):
+            active = hovered == ("v", idx) or dragging == ("v", idx)
+            painter.setPen(shadow_pen)
+            painter.drawLine(x_d, page_rect.top(), x_d, page_rect.bottom())
+            painter.setPen(active_pen if active else line_pen)
+            painter.drawLine(x_d, page_rect.top(), x_d, page_rect.bottom())
+
+        # --- Drag handles ---
+        for idx, y_d in enumerate(h_d[1:-1]):
+            active = hovered == ("h", idx) or dragging == ("h", idx)
+            _draw_handle(painter, page_rect.left() + 24, y_d, "h", active)
+        for idx, x_d in enumerate(v_d[1:-1]):
+            active = hovered == ("v", idx) or dragging == ("v", idx)
+            _draw_handle(painter, x_d, page_rect.top() + 24, "v", active)
 
         # --- Preview line (while placing) ---
         if e._preview is not None:
@@ -158,10 +218,10 @@ class _OverlayWidget(QWidget):
             painter.setPen(prev_pen)
             if e._mode == "add_h":
                 y_d = e._o2d(0, e._preview)[1]
-                painter.drawLine(0, y_d, self.width(), y_d)
+                painter.drawLine(page_rect.left(), y_d, page_rect.right(), y_d)
             elif e._mode == "add_v":
                 x_d = e._o2d(e._preview, 0)[0]
-                painter.drawLine(x_d, 0, x_d, self.height())
+                painter.drawLine(x_d, page_rect.top(), x_d, page_rect.bottom())
 
         # --- Pair badges ---
         for idx, pair in enumerate(e._pairs):
@@ -188,12 +248,14 @@ class _OverlayWidget(QWidget):
 
     def leaveEvent(self, _event) -> None:  # noqa: ANN001
         self._e._hovered_cell = None
+        self._e._hovered_line = None
         self.update()
 
 
 # ------------------------------------------------------------------
-# Cell rect helper (display space)
+# Display-space helpers
 # ------------------------------------------------------------------
+
 
 def _cell_rect_display(
     cell: tuple[int, int], h_d: list[int], v_d: list[int]
@@ -204,19 +266,21 @@ def _cell_rect_display(
     return QRect(v_d[ci], h_d[ri], v_d[ci + 1] - v_d[ci], h_d[ri + 1] - h_d[ri])
 
 
+def _page_rect_display(h_d: list[int], v_d: list[int]) -> QRect:
+    if len(h_d) < 2 or len(v_d) < 2:
+        return QRect()
+    return QRect(v_d[0], h_d[0], v_d[-1] - v_d[0], h_d[-1] - h_d[0])
+
+
 # ------------------------------------------------------------------
 # Grid editor
 # ------------------------------------------------------------------
 
+
 class GridEditor(QWidget):
-    """PDF viewer with an interactive grid overlay.
+    """PDF viewer with an interactive grid overlay."""
 
-    Lines are placed by clicking and dragging in add_h / add_v mode.
-    Pairs are formed by clicking two cells sequentially in pairing mode.
-    All coordinates are stored in 150-DPI pixel space for extractor compatibility.
-    """
-
-    open_requested = pyqtSignal()  # emitted by empty-state "Open PDF" button
+    open_requested = pyqtSignal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -228,10 +292,11 @@ class GridEditor(QWidget):
 
         # Interaction state
         self._mode: str = "idle"
-        self._preview: int | None = None        # 150 DPI pos of live preview line
-        self._placing: bool = False              # True while dragging to place new line
-        self._dragging: tuple[str, int] | None = None  # ("h"|"v", line_index)
-        self._pending_image: tuple[int, int] | None = None  # first cell in pair
+        self._preview: int | None = None
+        self._placing: bool = False
+        self._dragging: tuple[str, int] | None = None
+        self._hovered_line: tuple[str, int] | None = None
+        self._pending_image: tuple[int, int] | None = None
         self._hovered_cell: tuple[int, int] | None = None
 
         self.pdf_path: str | None = None
@@ -249,10 +314,13 @@ class GridEditor(QWidget):
         self._ctrl_bar = QWidget()
         self._ctrl_bar.setObjectName("controlBar")
         bar = QHBoxLayout(self._ctrl_bar)
-        bar.setContentsMargins(12, 0, 12, 0)
-        bar.setSpacing(8)
+        bar.setContentsMargins(16, 0, 16, 0)
+        bar.setSpacing(12)
 
-        # Segmented control for mutually-exclusive mode buttons
+        tool_label = QLabel("Grid tools")
+        tool_label.setObjectName("toolLabel")
+        bar.addWidget(tool_label)
+
         seg = QWidget()
         seg.setObjectName("segmentedControl")
         seg_layout = QHBoxLayout(seg)
@@ -260,22 +328,27 @@ class GridEditor(QWidget):
         seg_layout.setSpacing(0)
 
         modes = [
-            (QIcon(theme.icon_path("h-line.svg")), "H Line", "add_h"),
-            (QIcon(theme.icon_path("v-line.svg")), "V Line", "add_v"),
-            (QIcon(theme.icon_path("link.svg")), "Pair Cells", "pairing"),
+            (QIcon(theme.icon_path("h-line.svg")), "Rows", "add_h", "Click-drag to add a horizontal row boundary."),
+            (QIcon(theme.icon_path("v-line.svg")), "Columns", "add_v", "Click-drag to add a vertical column boundary."),
+            (QIcon(theme.icon_path("link.svg")), "Pair", "pairing", "Click an image cell, then its matching ID/text cell."),
         ]
-        for icon, label, mode in modes:
+        for icon, label, mode, tooltip in modes:
             btn = QPushButton(icon, f"  {label}")
             btn.setCheckable(True)
+            btn.setToolTip(tooltip)
             btn.clicked.connect(lambda _checked, m=mode, b=btn: self._set_mode(m, b))
             setattr(self, f"_btn_{mode}", btn)
             seg_layout.addWidget(btn)
 
         bar.addWidget(seg)
-        bar.addStretch()
+
+        self._hint = QLabel("Drag existing handles to move lines. Right-click a line to remove it.")
+        self._hint.setObjectName("toolbarHint")
+        bar.addWidget(self._hint, stretch=1)
 
         clear_btn = QPushButton("Clear Grid")
         clear_btn.setProperty("ghost", True)
+        clear_btn.setToolTip("Remove all lines and pairings from the current PDF.")
         clear_btn.clicked.connect(self._clear_grid)
         bar.addWidget(clear_btn)
 
@@ -289,20 +362,24 @@ class GridEditor(QWidget):
         pix = QPixmap(theme.icon_path("document.svg"))
         if not pix.isNull():
             icon_label.setPixmap(
-                pix.scaled(80, 80, Qt.AspectRatioMode.KeepAspectRatio,
-                           Qt.TransformationMode.SmoothTransformation)
+                pix.scaled(
+                    72,
+                    72,
+                    Qt.AspectRatioMode.KeepAspectRatio,
+                    Qt.TransformationMode.SmoothTransformation,
+                )
             )
         icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         inner.addWidget(icon_label)
-        inner.addSpacing(20)
+        inner.addSpacing(22)
 
-        title = QLabel("No PDF open")
+        title = QLabel("Open a PDF to begin")
         title.setProperty("heading", True)
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         inner.addWidget(title)
         inner.addSpacing(8)
 
-        subtitle = QLabel("Open a PDF file to define your extraction grid.")
+        subtitle = QLabel("Define reusable row and column boundaries, then pair swatches with IDs.")
         subtitle.setProperty("body", True)
         subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
         inner.addWidget(subtitle)
@@ -310,7 +387,7 @@ class GridEditor(QWidget):
 
         open_btn = QPushButton(QIcon(theme.icon_path("folder-open.svg")), "  Open PDF")
         open_btn.setProperty("primary", True)
-        open_btn.setFixedWidth(160)
+        open_btn.setFixedWidth(170)
         open_btn.clicked.connect(self.open_requested)
         inner.addWidget(open_btn, alignment=Qt.AlignmentFlag.AlignCenter)
 
@@ -323,8 +400,8 @@ class GridEditor(QWidget):
         layout.addWidget(self._ctrl_bar)
 
         self._stack = QStackedWidget()
-        self._stack.addWidget(self._build_empty_state())  # index 0: no PDF
-        self._stack.addWidget(self._viewer)               # index 1: PDF loaded
+        self._stack.addWidget(self._build_empty_state())
+        self._stack.addWidget(self._viewer)
         self._stack.setCurrentIndex(0)
         layout.addWidget(self._stack, stretch=1)
 
@@ -345,6 +422,7 @@ class GridEditor(QWidget):
         self.pdf_path = path
         self._viewer.open(path)
         self._stack.setCurrentIndex(1)
+        self._set_hint("Use Rows or Columns to place boundaries. Drag handles to adjust.")
         self._reposition_overlay()
 
     def current_profile(self) -> Grid | None:
@@ -361,6 +439,9 @@ class GridEditor(QWidget):
         self._v_lines = list(grid.vertical_lines)
         self._pairs = list(grid.pairs)
         self._pending_image = None
+        self._hovered_cell = None
+        self._hovered_line = None
+        self._set_hint("Profile applied. Fine-tune lines by dragging their handles.")
         self._overlay.update()
 
     # ------------------------------------------------------------------
@@ -368,19 +449,14 @@ class GridEditor(QWidget):
     # ------------------------------------------------------------------
 
     def _d2o(self, x: int, y: int) -> tuple[int, int]:
-        """Display coords → 150 DPI pixel coords."""
+        """Display coords → 150-DPI pixel coords."""
         return self._viewer.display_to_original_coords(x, y)
 
     def _o2d(self, x: int, y: int) -> tuple[int, int]:
-        """150 DPI pixel coords → display coords."""
+        """150-DPI pixel coords → display coords."""
         return self._viewer.original_to_display_coords(x, y)
 
     def _grid_display_boundaries(self) -> tuple[list[int], list[int]]:
-        """Return (h_display, v_display) boundary lists in display/overlay space.
-
-        Each list starts at the page top/left and ends at the page bottom/right,
-        with user-placed lines in between.
-        """
         orig = self._viewer.pixmap
         if orig is None:
             return [0, self._overlay.height()], [0, self._overlay.width()]
@@ -392,11 +468,12 @@ class GridEditor(QWidget):
         return h_d, v_d
 
     def _cell_at_orig(self, ox: int, oy: int) -> tuple[int, int] | None:
-        """Return the (row, col) cell that contains the 150-DPI point (ox, oy)."""
         orig = self._viewer.pixmap
         if orig is None:
             return None
         ph, pw = orig.height(), orig.width()
+        if ox < 0 or oy < 0 or ox >= pw or oy >= ph:
+            return None
         h = [0] + sorted(self._h_lines) + [ph]
         v = [0] + sorted(self._v_lines) + [pw]
         for ri in range(len(h) - 1):
@@ -407,7 +484,7 @@ class GridEditor(QWidget):
         return None
 
     def _line_hit(self, dx: int, dy: int) -> tuple[int | None, int | None]:
-        """Return (h_index, None) or (None, v_index) if within _LINE_HIT_DIST."""
+        """Return (h_index, None) or (None, v_index) if within hit distance."""
         for i, y_orig in enumerate(self._h_lines):
             y_d = self._o2d(0, y_orig)[1]
             if abs(dy - y_d) <= _LINE_HIT_DIST:
@@ -429,8 +506,20 @@ class GridEditor(QWidget):
             if btn and btn is not active_btn:
                 btn.setChecked(False)
         self._pending_image = None
+        self._hovered_cell = None
         self._overlay.update()
         self._update_cursor(None, None)
+
+        hints = {
+            "idle": "Drag existing handles to move lines. Right-click a line to remove it.",
+            "add_h": "Click-drag across the PDF to place a horizontal row boundary.",
+            "add_v": "Click-drag across the PDF to place a vertical column boundary.",
+            "pairing": "Click the image cell first, then click the matching ID/text cell.",
+        }
+        self._set_hint(hints.get(self._mode, hints["idle"]))
+
+    def _set_hint(self, text: str) -> None:
+        self._hint.setText(text)
 
     def _update_cursor(self, dx: int | None, dy: int | None) -> None:
         if dx is not None and dy is not None:
@@ -458,16 +547,18 @@ class GridEditor(QWidget):
             self._on_right_click(dx, dy)
             return
 
-        # Priority 1: drag existing line if close enough
         hit_h, hit_v = self._line_hit(dx, dy)
         if hit_h is not None:
             self._dragging = ("h", hit_h)
+            self._set_hint("Dragging row boundary. Release to set position.")
+            self._overlay.update()
             return
         if hit_v is not None:
             self._dragging = ("v", hit_v)
+            self._set_hint("Dragging column boundary. Release to set position.")
+            self._overlay.update()
             return
 
-        # Priority 2: mode action
         ox, oy = self._d2o(dx, dy)
         if self._mode == "add_h":
             self._placing = True
@@ -499,13 +590,20 @@ class GridEditor(QWidget):
             self._overlay.update()
             return
 
-        # Update cursor based on proximity to lines
+        hit_h, hit_v = self._line_hit(dx, dy)
+        if hit_h is not None:
+            self._hovered_line = ("h", hit_h)
+        elif hit_v is not None:
+            self._hovered_line = ("v", hit_v)
+        else:
+            self._hovered_line = None
         self._update_cursor(dx, dy)
 
-        # Update hovered cell in pairing mode
         if self._mode == "pairing":
             self._hovered_cell = self._cell_at_orig(ox, oy)
-            self._overlay.update()
+        else:
+            self._hovered_cell = None
+        self._overlay.update()
 
     def _on_release(self, event: QMouseEvent) -> None:
         if event.button() != Qt.MouseButton.LeftButton:
@@ -513,6 +611,7 @@ class GridEditor(QWidget):
 
         if self._dragging:
             self._dragging = None
+            self._set_hint("Line moved. Right-click any line to delete it.")
             self._overlay.update()
             return
 
@@ -520,8 +619,10 @@ class GridEditor(QWidget):
             if self._preview is not None:
                 if self._mode == "add_h":
                     self._h_lines.append(self._preview)
+                    self._set_hint("Row boundary added. Drag its handle to adjust.")
                 elif self._mode == "add_v":
                     self._v_lines.append(self._preview)
+                    self._set_hint("Column boundary added. Drag its handle to adjust.")
             self._placing = False
             self._preview = None
             self._overlay.update()
@@ -532,27 +633,31 @@ class GridEditor(QWidget):
         if self._mode == "pairing":
             if self._pending_image is not None:
                 self._pending_image = None
+                self._set_hint("Pair selection cancelled.")
                 self._overlay.update()
                 return
             cell = self._cell_at_orig(ox, oy)
             if cell:
+                before = len(self._pairs)
                 self._pairs = [
                     p for p in self._pairs
                     if p.image_cell != cell and p.text_cell != cell
                 ]
+                if len(self._pairs) != before:
+                    self._set_hint("Cell pair removed.")
                 self._overlay.update()
             return
 
-        # Any other mode: right-click near a line removes it
         hit_h, hit_v = self._line_hit(dx, dy)
         if hit_h is not None:
             del self._h_lines[hit_h]
-            # Remove pairs that reference now-invalid cells
             self._pairs = []
+            self._set_hint("Row boundary removed. Pairings were cleared because the grid changed.")
             self._overlay.update()
         elif hit_v is not None:
             del self._v_lines[hit_v]
             self._pairs = []
+            self._set_hint("Column boundary removed. Pairings were cleared because the grid changed.")
             self._overlay.update()
 
     def _on_pair_click(self, ox: int, oy: int) -> None:
@@ -561,11 +666,14 @@ class GridEditor(QWidget):
             return
         if self._pending_image is None:
             self._pending_image = cell
+            self._set_hint("Image cell selected. Now click the matching ID/text cell.")
         elif cell == self._pending_image:
-            self._pending_image = None      # deselect same cell
+            self._pending_image = None
+            self._set_hint("Pair selection cancelled.")
         else:
             self._pairs.append(CellPair(image_cell=self._pending_image, text_cell=cell))
             self._pending_image = None
+            self._set_hint("Pair created. Continue pairing cells or right-click a pair to remove it.")
         self._overlay.update()
 
     # ------------------------------------------------------------------
@@ -577,4 +685,7 @@ class GridEditor(QWidget):
         self._v_lines.clear()
         self._pairs.clear()
         self._pending_image = None
+        self._hovered_cell = None
+        self._hovered_line = None
+        self._set_hint("Grid cleared. Add row and column boundaries to start again.")
         self._overlay.update()
