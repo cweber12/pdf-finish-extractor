@@ -40,11 +40,11 @@ SUCCESS = "#22C55E"
 ERROR = "#F43F5E"
 WARNING = "#F59E0B"
 
-GRID_LINE = "#F43F5E"
-GRID_LINE_ACTIVE = "#FB7185"
-GRID_LINE_SOFT = "rgba(244, 63, 94, 0.18)"
-GRID_HANDLE = "#FFE4E6"
-GRID_HANDLE_INNER = "#F43F5E"
+GRID_LINE = "#050505"
+GRID_LINE_ACTIVE = "#000000"
+GRID_LINE_SOFT = "rgba(0, 0, 0, 0.12)"
+GRID_HANDLE = "#F8FAFC"
+GRID_HANDLE_INNER = "#050505"
 PAIR_IMAGE = "rgba(56, 189, 248, 0.18)"
 PAIR_TEXT = "rgba(34, 197, 94, 0.16)"
 PAIR_PENDING = "rgba(245, 158, 11, 0.24)"
@@ -123,9 +123,9 @@ QLabel#statusText {{
 
 QWidget#toolbarGroup,
 QWidget#profileGroup {{
-    background-color: {BG_ELEVATED};
-    border: 1px solid {BORDER};
-    border-radius: 12px;
+    background-color: transparent;
+    border: none;
+    border-radius: 0;
 }}
 
 /* ── Grid editor control bar ────────────────────────────────────────────── */
@@ -221,17 +221,17 @@ QToolButton::menu-indicator {{
 
 /* ── Segmented control ──────────────────────────────────────────────────── */
 QWidget#segmentedControl {{
-    background-color: {BG_BASE};
-    border: 1px solid {BORDER};
-    border-radius: 12px;
-    padding: 3px;
+    background-color: transparent;
+    border: none;
+    border-radius: 0;
+    padding: 0;
 }}
 
 QWidget#segmentedControl QPushButton {{
     background-color: transparent;
     color: {TEXT_MUTED};
-    border: 1px solid transparent;
-    border-radius: 8px;
+    border: none;
+    border-radius: 7px;
     padding: 7px 12px;
     min-width: 86px;
     font-size: {FONT_MD}px;
@@ -239,15 +239,15 @@ QWidget#segmentedControl QPushButton {{
 }}
 
 QWidget#segmentedControl QPushButton:hover:!checked {{
-    background-color: {BG_HOVER};
+    background-color: rgba(148, 163, 184, 0.10);
     color: {TEXT_PRIMARY};
-    border-color: {BORDER_LIGHT};
+    border: none;
 }}
 
 QWidget#segmentedControl QPushButton:checked {{
-    background-color: {ACCENT_SOFT};
+    background-color: rgba(56, 189, 248, 0.12);
     color: {ACCENT};
-    border-color: rgba(56, 189, 248, 0.45);
+    border: none;
 }}
 
 /* ── Menus / dropdowns ──────────────────────────────────────────────────── */
@@ -460,4 +460,21 @@ QFrame[frameShape="4"],
 QFrame[frameShape="5"] {{
     color: {BORDER};
 }}
+
+
+/* ── Extraction progress ───────────────────────────────────────────────── */
+QProgressBar#extractProgress {{
+    background-color: {BG_BASE};
+    border: 1px solid {BORDER};
+    border-radius: 6px;
+    min-height: 10px;
+    max-height: 10px;
+}}
+
+QProgressBar#extractProgress::chunk {{
+    background-color: {ACCENT};
+    border-radius: 5px;
+}}
 """
+
+

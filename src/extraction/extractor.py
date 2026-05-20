@@ -1,13 +1,25 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from io import BytesIO
+import math
+from typing import Callable, Iterable
 
 import fitz  # PyMuPDF
+from PIL import Image
 
-from src.extraction.grid import Grid
+from src.extraction.grid import CellPair, Grid
 
-_RENDER_DPI = 150
-_SCALE = _RENDER_DPI / 72.0  # pixels per PDF point
+# Grid coordinates are stored in 150-DPI rendered-pixel space.
+_GRID_DPI = 150
+_GRID_SCALE = _GRID_DPI / 72.0  # grid pixels per PDF point
+
+# Rendering at 150 DPI keeps the existing output size/quality behavior.
+_DEFAULT_RENDER_DPI = 150
+
+# Full-page rendering is much faster when a page has several swatch crops.
+# For a single crop, clipped rendering can use less memory.
+_FULL_PAGE_RENDER_THRESHOLD = 2
 
 
 @dataclass
@@ -17,61 +29,287 @@ class ExtractedPair:
     is_duplicate: bool = False
 
 
-class Extractor:
-    """Applies a :class:`Grid` to every page of a PDF and returns image/ID pairs.
+@dataclass(frozen=True)
+class ExtractionProgress:
+    """Progress payload emitted after each processed page."""
 
-    Coordinate mapping
-    ------------------
-    The grid stores line positions in *rendered pixel* space (at 150 DPI).
-    PyMuPDF works in *PDF points* (72 pts = 1 inch).
-    We divide pixel coords by ``_SCALE`` to convert before passing to PyMuPDF.
+    page_index: int
+    page_count: int
+    pairs_extracted: int
+
+
+@dataclass(frozen=True)
+class _ResolvedPair:
+    """Pair whose grid cells have been converted to PDF-point rectangles."""
+
+    source: CellPair
+    image_rect: fitz.Rect
+    text_rect: fitz.Rect
+
+
+class Extractor:
+    """Apply a saved :class:`Grid` profile to a PDF and return image/ID pairs.
+
+    Performance notes
+    -----------------
+    The original implementation called ``page.get_pixmap(...)`` for every image
+    cell. On multi-page PDFs this becomes expensive because the same page is
+    rasterized repeatedly.
+
+    This implementation renders each page at most once when there are multiple
+    crops on that page, then crops the image cells from that in-memory page
+    image. Text extraction also reuses a single ``TextPage`` per page.
     """
 
-    def __init__(self, pdf_path: str, grid: Grid) -> None:
+    def __init__(
+        self,
+        pdf_path: str,
+        grid: Grid,
+        *,
+        render_dpi: int = _DEFAULT_RENDER_DPI,
+        full_page_render_threshold: int = _FULL_PAGE_RENDER_THRESHOLD,
+        png_compress_level: int = 1,
+    ) -> None:
         self._pdf_path = pdf_path
-        self._grid = grid
+        self._grid = grid.normalized()
+        self._render_dpi = render_dpi
+        self._render_scale = render_dpi / 72.0
+        self._full_page_render_threshold = max(1, full_page_render_threshold)
+        # Low compression keeps extraction responsive. Images can still be
+        # recompressed later by ``image_processing.compress_image`` before upload.
+        self._png_compress_level = max(0, min(9, png_compress_level))
 
-    def extract_all_pages(self) -> list[ExtractedPair]:
+    def extract_all_pages(
+        self,
+        *,
+        progress_callback: Callable[[ExtractionProgress], None] | None = None,
+        cancel_check: Callable[[], bool] | None = None,
+    ) -> list[ExtractedPair]:
+        """Extract all configured pairs from every page.
+
+        Parameters
+        ----------
+        progress_callback:
+            Optional callback called once per page. Useful when extraction is
+            run in a background worker and the UI wants a progress indicator.
+        cancel_check:
+            Optional callback. If it returns True between pages, extraction
+            stops cleanly and returns pairs extracted so far.
+        """
         pairs: list[ExtractedPair] = []
-        doc = fitz.open(self._pdf_path)
-        try:
-            for page in doc:
+        with fitz.open(self._pdf_path) as doc:
+            page_count = len(doc)
+            for page_index in range(page_count):
+                if cancel_check and cancel_check():
+                    break
+
+                page = doc[page_index]
                 pairs.extend(self._extract_page(page))
-        finally:
-            doc.close()
+
+                if progress_callback:
+                    progress_callback(
+                        ExtractionProgress(
+                            page_index=page_index,
+                            page_count=page_count,
+                            pairs_extracted=len(pairs),
+                        )
+                    )
+
         return pairs
+
+    def iter_pages(
+        self,
+        *,
+        cancel_check: Callable[[], bool] | None = None,
+    ) -> Iterable[tuple[ExtractionProgress, list[ExtractedPair]]]:
+        """Yield extracted pairs page-by-page.
+
+        This is useful for future UI updates where the preview can be populated
+        incrementally instead of waiting for the entire PDF to finish.
+        """
+        total_pairs = 0
+        with fitz.open(self._pdf_path) as doc:
+            page_count = len(doc)
+            for page_index in range(page_count):
+                if cancel_check and cancel_check():
+                    break
+
+                page_pairs = self._extract_page(doc[page_index])
+                total_pairs += len(page_pairs)
+                yield (
+                    ExtractionProgress(
+                        page_index=page_index,
+                        page_count=page_count,
+                        pairs_extracted=total_pairs,
+                    ),
+                    page_pairs,
+                )
 
     # ------------------------------------------------------------------
     # Internal
     # ------------------------------------------------------------------
 
     def _extract_page(self, page: fitz.Page) -> list[ExtractedPair]:
-        g = self._grid
-        h_pts = [y / _SCALE for y in [0] + sorted(g.horizontal_lines)]
-        h_pts.append(page.rect.height)
-        v_pts = [x / _SCALE for x in [0] + sorted(g.vertical_lines)]
-        v_pts.append(page.rect.width)
+        resolved_pairs = self._resolve_pairs_for_page(page)
+        if not resolved_pairs:
+            return []
 
-        def cell_rect(ri: int, ci: int) -> fitz.Rect | None:
-            if ri >= len(h_pts) - 1 or ci >= len(v_pts) - 1:
-                return None
-            return fitz.Rect(v_pts[ci], h_pts[ri], v_pts[ci + 1], h_pts[ri + 1])
+        # Build text extraction data once per page instead of once per pair.
+        text_page = page.get_textpage()
+
+        pending: list[tuple[str, fitz.Rect]] = []
+        for pair in resolved_pairs:
+            material_id = self._extract_cell_text(page, pair.text_rect, text_page)
+            if material_id:
+                pending.append((material_id, pair.image_rect))
+
+        if not pending:
+            return []
+
+        if len(pending) >= self._full_page_render_threshold:
+            return self._crop_from_full_page_render(page, pending)
+
+        return [
+            ExtractedPair(material_id=material_id, image_bytes=self._crop_clip(page, image_rect))
+            for material_id, image_rect in pending
+        ]
+
+    def _resolve_pairs_for_page(self, page: fitz.Page) -> list[_ResolvedPair]:
+        h_pts, v_pts = self._page_boundaries(page)
+
+        resolved: list[_ResolvedPair] = []
+        for pair in self._grid.pairs:
+            image_rect = self._cell_rect(pair.image_cell, h_pts, v_pts)
+            text_rect = self._cell_rect(pair.text_cell, h_pts, v_pts)
+            if image_rect is None or text_rect is None:
+                continue
+
+            image_rect = page.rect & image_rect
+            text_rect = page.rect & text_rect
+            if image_rect.is_empty or text_rect.is_empty:
+                continue
+
+            resolved.append(
+                _ResolvedPair(
+                    source=pair,
+                    image_rect=image_rect,
+                    text_rect=text_rect,
+                )
+            )
+
+        return resolved
+
+    def _page_boundaries(self, page: fitz.Page) -> tuple[list[float], list[float]]:
+        """Return sorted horizontal/vertical boundaries in PDF points."""
+        h_pts = [0.0]
+        h_pts.extend(y / _GRID_SCALE for y in self._grid.horizontal_lines)
+        h_pts.append(float(page.rect.height))
+
+        v_pts = [0.0]
+        v_pts.extend(x / _GRID_SCALE for x in self._grid.vertical_lines)
+        v_pts.append(float(page.rect.width))
+
+        # Clamp profile lines to the current page and remove duplicates. This
+        # prevents invalid or zero-width cells on PDFs with slightly different
+        # page sizes.
+        h_pts = _dedupe_sorted(_clamp(v, 0.0, float(page.rect.height)) for v in h_pts)
+        v_pts = _dedupe_sorted(_clamp(v, 0.0, float(page.rect.width)) for v in v_pts)
+        return h_pts, v_pts
+
+    @staticmethod
+    def _cell_rect(
+        cell: tuple[int, int],
+        h_pts: list[float],
+        v_pts: list[float],
+    ) -> fitz.Rect | None:
+        row, col = cell
+        if row < 0 or col < 0 or row >= len(h_pts) - 1 or col >= len(v_pts) - 1:
+            return None
+        return fitz.Rect(v_pts[col], h_pts[row], v_pts[col + 1], h_pts[row + 1])
+
+    @staticmethod
+    def _extract_cell_text(page: fitz.Page, rect: fitz.Rect, text_page: fitz.TextPage) -> str:
+        # get_textbox() is faster here because it directly extracts text within
+        # the rectangle from the already-built TextPage.
+        return page.get_textbox(rect, textpage=text_page).strip()
+
+    def _crop_from_full_page_render(
+        self,
+        page: fitz.Page,
+        pending: list[tuple[str, fitz.Rect]],
+    ) -> list[ExtractedPair]:
+        mat = fitz.Matrix(self._render_scale, self._render_scale)
+        pix = page.get_pixmap(matrix=mat, alpha=False)
+
+        # Convert the rendered page once, then crop all swatches from it.
+        page_image = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
 
         results: list[ExtractedPair] = []
-        for pair in g.pairs:
-            img_rect = cell_rect(*pair.image_cell)
-            txt_rect = cell_rect(*pair.text_cell)
-            if img_rect is None or txt_rect is None:
+        for material_id, rect in pending:
+            crop_box = self._rect_to_pixel_box(rect, pix.width, pix.height)
+            if crop_box is None:
                 continue
-            material_id = page.get_text("text", clip=txt_rect).strip()
-            if not material_id:
-                continue
-            image_bytes = self._crop_image(page, img_rect)
-            results.append(ExtractedPair(material_id=material_id, image_bytes=image_bytes))
+
+            crop = page_image.crop(crop_box)
+            results.append(
+                ExtractedPair(
+                    material_id=material_id,
+                    image_bytes=self._encode_png(crop),
+                )
+            )
+
+        # Drop references promptly on large PDFs.
+        page_image.close()
         return results
 
-    def _crop_image(self, page: fitz.Page, rect: fitz.Rect) -> bytes:
-        mat = fitz.Matrix(_SCALE, _SCALE)
+    def _crop_clip(self, page: fitz.Page, rect: fitz.Rect) -> bytes:
+        mat = fitz.Matrix(self._render_scale, self._render_scale)
         clip = page.rect & rect
         pix = page.get_pixmap(matrix=mat, clip=clip, alpha=False)
-        return pix.tobytes("png")
+        image = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
+        try:
+            return self._encode_png(image)
+        finally:
+            image.close()
+
+    def _rect_to_pixel_box(
+        self,
+        rect: fitz.Rect,
+        pixmap_width: int,
+        pixmap_height: int,
+    ) -> tuple[int, int, int, int] | None:
+        left = math.floor(rect.x0 * self._render_scale)
+        top = math.floor(rect.y0 * self._render_scale)
+        right = math.ceil(rect.x1 * self._render_scale)
+        bottom = math.ceil(rect.y1 * self._render_scale)
+
+        left = max(0, min(left, pixmap_width))
+        top = max(0, min(top, pixmap_height))
+        right = max(0, min(right, pixmap_width))
+        bottom = max(0, min(bottom, pixmap_height))
+
+        if right <= left or bottom <= top:
+            return None
+        return left, top, right, bottom
+
+    def _encode_png(self, image: Image.Image) -> bytes:
+        buf = BytesIO()
+        image.save(
+            buf,
+            format="PNG",
+            compress_level=self._png_compress_level,
+            optimize=False,
+        )
+        return buf.getvalue()
+
+
+def _clamp(value: float, low: float, high: float) -> float:
+    return max(low, min(value, high))
+
+
+def _dedupe_sorted(values: Iterable[float], *, tolerance: float = 0.01) -> list[float]:
+    result: list[float] = []
+    for value in sorted(values):
+        if not result or abs(value - result[-1]) > tolerance:
+            result.append(value)
+    return result

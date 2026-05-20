@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QAction, QIcon
+from PyQt6.QtCore import QObject, QThread, Qt, pyqtSignal, pyqtSlot
+from PyQt6.QtGui import QAction, QCloseEvent, QIcon
 from PyQt6.QtWidgets import (
     QFileDialog,
     QFrame,
@@ -10,17 +10,64 @@ from PyQt6.QtWidgets import (
     QLabel,
     QMainWindow,
     QMenu,
+    QProgressBar,
     QPushButton,
     QToolButton,
     QVBoxLayout,
     QWidget,
 )
 
+from src.extraction.grid import Grid
 from src.ui import theme
 from src.ui.grid_editor import GridEditor
 from src.ui.preview_panel import PreviewPanel
 from src.ui.profile_manager import ProfileManager
 from src.ui.toast import Toast
+
+
+class _ExtractionWorker(QObject):
+    """Runs PDF extraction off the Qt main thread.
+
+    The expensive work is intentionally isolated from the UI. Signals are used
+    to report progress and completion back to ``MainWindow`` safely.
+    """
+
+    progress = pyqtSignal(int, int, int)  # page_index, page_count, pairs_extracted
+    finished = pyqtSignal(object, bool)   # list[ExtractedPair], was_cancelled
+    failed = pyqtSignal(str)
+
+    def __init__(self, pdf_path: str, profile: Grid) -> None:
+        super().__init__()
+        self._pdf_path = pdf_path
+        self._profile = profile
+        self._cancel_requested = False
+
+    @pyqtSlot()
+    def run(self) -> None:
+        """Execute extraction in the worker thread."""
+        try:
+            from src.extraction.extractor import Extractor, ExtractionProgress
+
+            def on_progress(progress: ExtractionProgress) -> None:
+                self.progress.emit(
+                    progress.page_index,
+                    progress.page_count,
+                    progress.pairs_extracted,
+                )
+
+            extractor = Extractor(self._pdf_path, self._profile)
+            pairs = extractor.extract_all_pages(
+                progress_callback=on_progress,
+                cancel_check=lambda: self._cancel_requested,
+            )
+            self.finished.emit(pairs, self._cancel_requested)
+        except Exception as exc:  # noqa: BLE001 - user-facing extraction failure
+            self.failed.emit(str(exc))
+
+    @pyqtSlot()
+    def cancel(self) -> None:
+        """Request a clean stop between pages."""
+        self._cancel_requested = True
 
 
 def _vline() -> QFrame:
@@ -39,6 +86,8 @@ class MainWindow(QMainWindow):
 
         self._profile_manager = ProfileManager()
         self._selected_profile_name: str | None = None
+        self._extraction_thread: QThread | None = None
+        self._extraction_worker: _ExtractionWorker | None = None
         self._build_central()
 
     # ------------------------------------------------------------------
@@ -108,10 +157,10 @@ class MainWindow(QMainWindow):
         layout.addWidget(title_group)
 
         # File action.
-        open_btn = QPushButton(QIcon(theme.icon_path("folder-open.svg")), "  Open PDF")
-        open_btn.setToolTip("Open a PDF and start defining extraction boundaries.")
-        open_btn.clicked.connect(self._on_open_pdf)
-        layout.addWidget(open_btn)
+        self._open_btn = QPushButton(QIcon(theme.icon_path("folder-open.svg")), "  Open PDF")
+        self._open_btn.setToolTip("Open a PDF and start defining extraction boundaries.")
+        self._open_btn.clicked.connect(self._on_open_pdf)
+        layout.addWidget(self._open_btn)
 
         layout.addWidget(_vline())
 
@@ -143,23 +192,41 @@ class MainWindow(QMainWindow):
         self._profile_button.setMenu(self._profile_menu)
         profile_layout.addWidget(self._profile_button)
 
-        save_btn = QPushButton(QIcon(theme.icon_path("save.svg")), "  Save Current")
-        save_btn.setToolTip("Save the current grid lines and cell pairings as a reusable PDF profile.")
-        save_btn.clicked.connect(self._on_save_profile)
-        profile_layout.addWidget(save_btn)
+        self._save_profile_btn = QPushButton(QIcon(theme.icon_path("save.svg")), "  Save Current")
+        self._save_profile_btn.setToolTip(
+            "Save the current grid lines and cell pairings as a reusable PDF profile."
+        )
+        self._save_profile_btn.clicked.connect(self._on_save_profile)
+        profile_layout.addWidget(self._save_profile_btn)
 
         layout.addWidget(profile_group)
         self._refresh_profiles()
 
         layout.addWidget(_vline())
 
-        extract_btn = QPushButton(QIcon(theme.icon_path("play.svg")), "  Extract All Pages")
-        extract_btn.setProperty("primary", True)
-        extract_btn.setToolTip("Run extraction using the current grid and pairings.")
-        extract_btn.clicked.connect(self._on_extract)
-        layout.addWidget(extract_btn)
+        self._extract_btn = QPushButton(QIcon(theme.icon_path("play.svg")), "  Extract All Pages")
+        self._extract_btn.setProperty("primary", True)
+        self._extract_btn.setToolTip("Run extraction using the current grid and pairings.")
+        self._extract_btn.clicked.connect(self._on_extract)
+        layout.addWidget(self._extract_btn)
+
+        self._cancel_extract_btn = QPushButton("Cancel")
+        self._cancel_extract_btn.setProperty("ghost", True)
+        self._cancel_extract_btn.setToolTip("Stop extraction after the current page finishes.")
+        self._cancel_extract_btn.clicked.connect(self._on_cancel_extract)
+        self._cancel_extract_btn.setVisible(False)
+        layout.addWidget(self._cancel_extract_btn)
 
         layout.addStretch()
+
+        self._progress_bar = QProgressBar()
+        self._progress_bar.setObjectName("extractProgress")
+        self._progress_bar.setRange(0, 100)
+        self._progress_bar.setValue(0)
+        self._progress_bar.setFixedWidth(170)
+        self._progress_bar.setTextVisible(False)
+        self._progress_bar.setVisible(False)
+        layout.addWidget(self._progress_bar)
 
         self._status_label = QLabel("Open a PDF to begin.")
         self._status_label.setObjectName("statusText")
@@ -171,6 +238,10 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
 
     def _on_open_pdf(self) -> None:
+        if self._is_extracting():
+            Toast.show_in(self.window(), "Cancel extraction before opening another PDF.", success=False)
+            return
+
         path, _ = QFileDialog.getOpenFileName(
             self, "Open PDF", "", "PDF Files (*.pdf)"
         )
@@ -180,6 +251,10 @@ class MainWindow(QMainWindow):
             self._status_label.setText("PDF loaded. Define or apply a grid profile.")
 
     def _on_profile_selected(self, name: str) -> None:
+        if self._is_extracting():
+            Toast.show_in(self.window(), "Cancel extraction before changing profiles.", success=False)
+            return
+
         profile = self._profile_manager.load(name)
         if profile:
             self._grid_editor.apply_profile(profile)
@@ -190,6 +265,10 @@ class MainWindow(QMainWindow):
             Toast.show_in(self.window(), f"Profile applied: {name}", success=True)
 
     def _on_save_profile(self) -> None:
+        if self._is_extracting():
+            Toast.show_in(self.window(), "Cancel extraction before saving a profile.", success=False)
+            return
+
         profile = self._grid_editor.current_profile()
         if profile is None:
             Toast.show_in(
@@ -223,6 +302,9 @@ class MainWindow(QMainWindow):
         Toast.show_in(self.window(), f"Profile saved: {saved_name}", success=True)
 
     def _on_extract(self) -> None:
+        if self._is_extracting():
+            return
+
         profile = self._grid_editor.current_profile()
         pdf_path = self._grid_editor.pdf_path
         if not pdf_path:
@@ -232,13 +314,49 @@ class MainWindow(QMainWindow):
             Toast.show_in(self.window(), "Create or apply a grid profile before extracting.", success=False)
             return
 
-        from src.extraction.extractor import Extractor
+        self._preview_panel.setVisible(False)
+        self._status_label.setText("Preparing extraction…")
+        self._start_extraction_worker(pdf_path, profile)
 
-        self._status_label.setText("Extracting all pages…")
-        pairs = Extractor(pdf_path, profile).extract_all_pages()
-        self._preview_panel.load(pairs)
-        self._preview_panel.setVisible(True)
-        self._status_label.setText(f"Extraction complete: {len(pairs)} pairs found.")
+    def _on_cancel_extract(self) -> None:
+        if not self._is_extracting() or self._extraction_worker is None:
+            return
+        self._cancel_extract_btn.setEnabled(False)
+        self._status_label.setText("Cancelling extraction after the current page…")
+        self._extraction_worker.cancel()
+
+    def _on_extraction_progress(self, page_index: int, page_count: int, pairs_extracted: int) -> None:
+        completed = page_index + 1
+        pct = int((completed / page_count) * 100) if page_count else 0
+        self._progress_bar.setValue(max(0, min(100, pct)))
+        self._status_label.setText(
+            f"Extracting page {completed}/{page_count} • {pairs_extracted} pairs found"
+        )
+
+    def _on_extraction_finished(self, pairs: object, was_cancelled: bool) -> None:
+        extracted_pairs = list(pairs) if isinstance(pairs, list) else []
+        self._preview_panel.load(extracted_pairs)
+        self._preview_panel.setVisible(bool(extracted_pairs))
+
+        self._set_extraction_running(False)
+        if was_cancelled:
+            msg = f"Extraction cancelled: {len(extracted_pairs)} pairs found."
+            self._status_label.setText(msg)
+            Toast.show_in(self.window(), msg, success=False)
+        else:
+            msg = f"Extraction complete: {len(extracted_pairs)} pairs found."
+            self._status_label.setText(msg)
+            Toast.show_in(self.window(), msg, success=True)
+
+    def _on_extraction_failed(self, error: str) -> None:
+        self._set_extraction_running(False)
+        self._status_label.setText("Extraction failed.")
+        detail = error[:120] + "…" if len(error) > 120 else error
+        Toast.show_in(self.window(), f"Extraction failed: {detail}", success=False)
+
+    def _on_extraction_thread_finished(self) -> None:
+        self._extraction_thread = None
+        self._extraction_worker = None
 
     def _refresh_profiles(self) -> None:
         if not hasattr(self, "_profile_menu"):
@@ -261,3 +379,61 @@ class MainWindow(QMainWindow):
         save_action = QAction("Save current grid as profile…", self)
         save_action.triggered.connect(self._on_save_profile)
         self._profile_menu.addAction(save_action)
+
+    # ------------------------------------------------------------------
+    # Extraction worker management
+    # ------------------------------------------------------------------
+
+    def _start_extraction_worker(self, pdf_path: str, profile: Grid) -> None:
+        thread = QThread(self)
+        worker = _ExtractionWorker(pdf_path, profile)
+        worker.moveToThread(thread)
+
+        thread.started.connect(worker.run)
+        worker.progress.connect(self._on_extraction_progress)
+        worker.finished.connect(self._on_extraction_finished)
+        worker.failed.connect(self._on_extraction_failed)
+        worker.finished.connect(thread.quit)
+        worker.failed.connect(thread.quit)
+        worker.finished.connect(worker.deleteLater)
+        worker.failed.connect(worker.deleteLater)
+        thread.finished.connect(thread.deleteLater)
+        thread.finished.connect(self._on_extraction_thread_finished)
+
+        self._extraction_thread = thread
+        self._extraction_worker = worker
+        self._set_extraction_running(True)
+        thread.start()
+
+    def _set_extraction_running(self, running: bool) -> None:
+        self._open_btn.setEnabled(not running)
+        self._profile_button.setEnabled(not running)
+        self._save_profile_btn.setEnabled(not running)
+        self._extract_btn.setEnabled(not running)
+        self._grid_editor.setEnabled(not running)
+
+        self._cancel_extract_btn.setVisible(running)
+        self._cancel_extract_btn.setEnabled(running)
+        self._progress_bar.setVisible(running)
+        if running:
+            self._progress_bar.setValue(0)
+        else:
+            self._progress_bar.setValue(0)
+            self._progress_bar.setVisible(False)
+
+    def _is_extracting(self) -> bool:
+        return self._extraction_thread is not None and self._extraction_thread.isRunning()
+
+    # ------------------------------------------------------------------
+    # Window lifecycle
+    # ------------------------------------------------------------------
+
+    def closeEvent(self, event: QCloseEvent) -> None:  # noqa: N802 - Qt override
+        if self._is_extracting() and self._extraction_worker is not None:
+            self._extraction_worker.cancel()
+            if self._extraction_thread is not None:
+                self._extraction_thread.quit()
+                self._extraction_thread.wait(1500)
+        super().closeEvent(event)
+
+

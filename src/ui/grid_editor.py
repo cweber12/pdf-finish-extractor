@@ -36,15 +36,14 @@ from src.ui.pdf_viewer import PDFViewer
 
 _LINE_COLOR = QColor(theme.GRID_LINE)
 _LINE_ACTIVE = QColor(theme.GRID_LINE_ACTIVE)
-_LINE_SHADOW = QColor(0, 0, 0, 95)
-_PREVIEW_COLOR = QColor(244, 63, 94, 145)
+_PREVIEW_COLOR = QColor(0, 0, 0, 150)
 _HANDLE_COLOR = QColor(theme.GRID_HANDLE)
 _HANDLE_INNER = QColor(theme.GRID_HANDLE_INNER)
-_HANDLE_BORDER = QColor(255, 255, 255, 210)
-_PAGE_BORDER = QColor(148, 163, 184, 90)
-_PAGE_SHADOW = QColor(0, 0, 0, 90)
-_HANDLE_RADIUS = 7
-_LINE_HIT_DIST = 10
+_HANDLE_BORDER = QColor(15, 23, 42, 120)
+_PAGE_BORDER = QColor(15, 23, 42, 160)
+_PAGE_SHADOW = QColor(0, 0, 0, 70)
+_HANDLE_OFFSET = 12
+_LINE_HIT_DIST = 6
 
 _PENDING_FILL = QColor(245, 158, 11, 64)
 _HOVER_FILL = QColor(148, 163, 184, 42)
@@ -70,33 +69,29 @@ def _draw_handle(
     orientation: str,
     active: bool = False,
 ) -> None:
-    """Draw a pill-shaped drag handle with visible grip marks."""
-    if orientation == "h":
-        rect = QRectF(cx - 17, cy - 8, 34, 16)
-        grip_x = cx - 6
-        grip_y = cy - 3
-        grip_w = 12
-        grip_h = 2
-        offsets = [0, 4, 8]
-    else:
-        rect = QRectF(cx - 8, cy - 17, 16, 34)
-        grip_x = cx - 3
-        grip_y = cy - 6
-        grip_w = 2
-        grip_h = 12
-        offsets = [0, 4, 8]
+    """Draw a compact drag tab outside the PDF page edge.
 
-    painter.setPen(QPen(_HANDLE_BORDER if active else QColor(255, 255, 255, 170), 1.2))
-    painter.setBrush(QBrush(QColor(255, 255, 255, 245) if active else _HANDLE_COLOR))
-    painter.drawRoundedRect(rect, 8, 8)
+    Horizontal-line handles sit just outside the left page border.
+    Vertical-line handles sit just outside the top page border. The handles are
+    intentionally narrow so adjacent grid lines do not visually overlap.
+    """
+    if orientation == "h":
+        rect = QRectF(cx - 12, cy - 5, 24, 10)
+        grip_rects = [QRectF(cx - 6, cy - 3 + offset, 12, 1.4) for offset in (0, 3, 6)]
+        radius = 5
+    else:
+        rect = QRectF(cx - 5, cy - 12, 10, 24)
+        grip_rects = [QRectF(cx - 3 + offset, cy - 6, 1.4, 12) for offset in (0, 3, 6)]
+        radius = 5
+
+    painter.setPen(QPen(_HANDLE_BORDER, 0.8))
+    painter.setBrush(QBrush(QColor(255, 255, 255, 250) if active else _HANDLE_COLOR))
+    painter.drawRoundedRect(rect, radius, radius)
 
     painter.setPen(Qt.PenStyle.NoPen)
     painter.setBrush(QBrush(_LINE_ACTIVE if active else _HANDLE_INNER))
-    for offset in offsets:
-        if orientation == "h":
-            painter.drawRoundedRect(QRectF(grip_x, grip_y + offset, grip_w, grip_h), 1, 1)
-        else:
-            painter.drawRoundedRect(QRectF(grip_x + offset, grip_y, grip_w, grip_h), 1, 1)
+    for grip in grip_rects:
+        painter.drawRoundedRect(grip, 0.7, 0.7)
 
 
 def _draw_badge(painter: QPainter, cx: int, cy: int, text: str) -> None:
@@ -184,37 +179,37 @@ class _OverlayWidget(QWidget):
                 painter.fillRect(r, _HOVER_FILL)
 
         # --- Grid lines ---
-        shadow_pen = QPen(_LINE_SHADOW, 4)
-        line_pen = QPen(_LINE_COLOR, 2)
-        active_pen = QPen(_LINE_ACTIVE, 3)
+        line_pen = QPen(_LINE_COLOR, 1)
+        line_pen.setCosmetic(True)
+        active_pen = QPen(_LINE_ACTIVE, 1)
+        active_pen.setCosmetic(True)
         hovered = e._hovered_line
         dragging = e._dragging
 
         for idx, y_d in enumerate(h_d[1:-1]):
             active = hovered == ("h", idx) or dragging == ("h", idx)
-            painter.setPen(shadow_pen)
-            painter.drawLine(page_rect.left(), y_d, page_rect.right(), y_d)
             painter.setPen(active_pen if active else line_pen)
             painter.drawLine(page_rect.left(), y_d, page_rect.right(), y_d)
 
         for idx, x_d in enumerate(v_d[1:-1]):
             active = hovered == ("v", idx) or dragging == ("v", idx)
-            painter.setPen(shadow_pen)
-            painter.drawLine(x_d, page_rect.top(), x_d, page_rect.bottom())
             painter.setPen(active_pen if active else line_pen)
             painter.drawLine(x_d, page_rect.top(), x_d, page_rect.bottom())
 
         # --- Drag handles ---
+        handle_left_x = page_rect.left() - _HANDLE_OFFSET
+        handle_top_y = page_rect.top() - _HANDLE_OFFSET
         for idx, y_d in enumerate(h_d[1:-1]):
             active = hovered == ("h", idx) or dragging == ("h", idx)
-            _draw_handle(painter, page_rect.left() + 24, y_d, "h", active)
+            _draw_handle(painter, handle_left_x, y_d, "h", active)
         for idx, x_d in enumerate(v_d[1:-1]):
             active = hovered == ("v", idx) or dragging == ("v", idx)
-            _draw_handle(painter, x_d, page_rect.top() + 24, "v", active)
+            _draw_handle(painter, x_d, handle_top_y, "v", active)
 
         # --- Preview line (while placing) ---
         if e._preview is not None:
-            prev_pen = QPen(_PREVIEW_COLOR, 2, Qt.PenStyle.DashLine)
+            prev_pen = QPen(_PREVIEW_COLOR, 1, Qt.PenStyle.DashLine)
+            prev_pen.setCosmetic(True)
             painter.setPen(prev_pen)
             if e._mode == "add_h":
                 y_d = e._o2d(0, e._preview)[1]
@@ -325,7 +320,7 @@ class GridEditor(QWidget):
         seg.setObjectName("segmentedControl")
         seg_layout = QHBoxLayout(seg)
         seg_layout.setContentsMargins(0, 0, 0, 0)
-        seg_layout.setSpacing(0)
+        seg_layout.setSpacing(6)
 
         modes = [
             (QIcon(theme.icon_path("h-line.svg")), "Rows", "add_h", "Click-drag to add a horizontal row boundary."),
@@ -689,3 +684,4 @@ class GridEditor(QWidget):
         self._hovered_line = None
         self._set_hint("Grid cleared. Add row and column boundaries to start again.")
         self._overlay.update()
+
