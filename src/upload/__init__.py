@@ -1,4 +1,4 @@
-from src.upload.r2_client import R2Client
+from src.upload.worker_client import WorkerClient
 from src.upload.neon_client import NeonClient
 
-__all__ = ["R2Client", "NeonClient"]
+__all__ = ["WorkerClient", "NeonClient"]

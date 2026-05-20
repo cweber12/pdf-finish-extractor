@@ -27,8 +27,26 @@ This project extracts images, text, and image/text pairs from PDFs. Keep the imp
 
 ## Commit Message Rule
 
-- Provide a commit message that explains the change, how it was implemented, and why it was needed.
-- Do not use literal section labels like `what`, `how`, or `why`; write it as a clean conventional commit-style message.
+Use this exact structure — no deviations:
+
+```
+type(scope): short summary of what changed
+
+- bullet describing one thing that was done
+- bullet describing another thing that was done
+- (add as many bullets as needed — one fact per bullet)
+
+One or two sentences explaining why the change was needed or what problem it solves.
+```
+
+Rules:
+- First line: `type(scope): what` — lowercase, no period, under 72 characters.
+- Valid types: `feat`, `fix`, `refactor`, `test`, `chore`, `docs`.
+- Blank line between summary, bullets, and closing sentences — always.
+- Bullets describe *what was done*, not how or why (that goes in the closing sentences).
+- Closing paragraph is 1–2 sentences max. No labels (`Why:`, `Reason:`, etc.).
+- No quotation marks anywhere in the message.
+- Do not wrap the message in a code block when presenting it to the user.
 
 ## Handoff Checklist
 

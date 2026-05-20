@@ -127,12 +127,10 @@ class PreviewPanel(QWidget):
         if not to_upload:
             return
 
-        from src.upload.r2_client import R2Client
-        from src.upload.neon_client import NeonClient
+        from src.upload.worker_client import WorkerClient
         from src.extraction.image_processing import compress_image
 
-        r2 = R2Client()
-        neon = NeonClient()
+        worker = WorkerClient()
 
         self._progress.setMaximum(len(to_upload))
         self._progress.setValue(0)
@@ -141,8 +139,7 @@ class PreviewPanel(QWidget):
         inserted = updated = 0
         for i, pair in enumerate(to_upload, 1):
             compressed = compress_image(pair.image_bytes)
-            r2_key = r2.upload(compressed, pair.material_id)
-            was_updated = neon.upsert(pair.material_id, r2_key, len(compressed))
+            was_updated = worker.upload(compressed, pair.material_id)
             if was_updated:
                 updated += 1
             else:
