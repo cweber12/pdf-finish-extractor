@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from __future__ import annotations
+
 import math
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
@@ -103,8 +105,9 @@ class Extractor:
                 if cancel_check and cancel_check():
                     break
 
-                page = doc[page_index]
-                pairs.extend(self._extract_page(page))
+                if page_index not in self._grid.omitted_pages:
+                    page = doc[page_index]
+                    pairs.extend(self._extract_page(page))
 
                 if progress_callback:
                     progress_callback(
@@ -134,8 +137,10 @@ class Extractor:
                 if cancel_check and cancel_check():
                     break
 
-                page_pairs = self._extract_page(doc[page_index])
-                total_pairs += len(page_pairs)
+                page_pairs = []
+                if page_index not in self._grid.omitted_pages:
+                    page_pairs = self._extract_page(doc[page_index])
+                    total_pairs += len(page_pairs)
                 yield (
                     ExtractionProgress(
                         page_index=page_index,
@@ -176,6 +181,7 @@ class Extractor:
 
     def _resolve_pairs_for_page(self, page: fitz.Page) -> list[_ResolvedPair]:
         h_pts, v_pts = self._page_boundaries(page)
+        omit_regions = self._omit_regions_for_page(page)
 
         resolved: list[_ResolvedPair] = []
         for pair in self._grid.pairs:
@@ -188,6 +194,11 @@ class Extractor:
             text_rect = page.rect & text_rect
             if image_rect.is_empty or text_rect.is_empty:
                 continue
+            if any(
+                _rects_intersect(image_rect, omitted) or _rects_intersect(text_rect, omitted)
+                for omitted in omit_regions
+            ):
+                continue
 
             resolved.append(
                 _ResolvedPair(
@@ -198,6 +209,26 @@ class Extractor:
             )
 
         return resolved
+
+    def _omit_regions_for_page(self, page: fitz.Page) -> list[fitz.Rect]:
+        """Return page-specific omit regions converted to PDF points."""
+        page_index = int(getattr(page, "number", 0))
+        regions: list[fitz.Rect] = []
+        for region in self._grid.omit_regions:
+            if region.page_index != page_index:
+                continue
+
+            x0, y0, x1, y1 = region.rect
+            rect = fitz.Rect(
+                x0 / _GRID_SCALE,
+                y0 / _GRID_SCALE,
+                x1 / _GRID_SCALE,
+                y1 / _GRID_SCALE,
+            )
+            rect = page.rect & rect
+            if not rect.is_empty:
+                regions.append(rect)
+        return regions
 
     def _page_boundaries(self, page: fitz.Page) -> tuple[list[float], list[float]]:
         """Return sorted horizontal/vertical boundaries in PDF points."""
@@ -301,6 +332,10 @@ class Extractor:
             optimize=False,
         )
         return buf.getvalue()
+
+
+def _rects_intersect(a: fitz.Rect, b: fitz.Rect) -> bool:
+    return not (a.x1 <= b.x0 or a.x0 >= b.x1 or a.y1 <= b.y0 or a.y0 >= b.y1)
 
 
 def _clamp(value: float, low: float, high: float) -> float:

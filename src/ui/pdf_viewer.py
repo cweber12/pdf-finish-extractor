@@ -29,7 +29,7 @@ class PDFViewer(QWidget):
         self._label.setScaledContents(False)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(24, 24, 24, 24)
+        layout.setContentsMargins(56, 56, 32, 32)
         layout.setSpacing(0)
         layout.addWidget(self._label)
 
@@ -42,11 +42,17 @@ class PDFViewer(QWidget):
         return len(self._doc) if self._doc else 0
 
     @property
+    def page_index(self) -> int:
+        return self._page_index
+
+    @property
     def pixmap(self) -> QPixmap | None:
         """Full-resolution pixmap in 150-DPI pixel space."""
         return self._original_pixmap
 
     def open(self, path: str) -> None:
+        if self._doc is not None:
+            self._doc.close()
         self._doc = fitz.open(path)
         self._page_index = 0
         self._render()
@@ -120,3 +126,5 @@ class PDFViewer(QWidget):
             Qt.TransformationMode.SmoothTransformation,
         )
         self._label.setPixmap(scaled)
+
+

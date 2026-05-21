@@ -1,7 +1,7 @@
 """Modern dark-theme design tokens and global QSS stylesheet.
 
-Keep UI colors centralized here so widgets stay visually consistent and the
-application keeps a polished, production-dashboard feel.
+The UI leans on Qt's layout system, plain widgets, and centralized styling so
+visual polish stays separate from extraction and upload behavior.
 """
 
 from __future__ import annotations
@@ -12,49 +12,54 @@ import os
 # Colour palette
 # ---------------------------------------------------------------------------
 
-BG_BASE = "#0B1120"
-BG_APP = "#0F172A"
-BG_SURFACE = "#111827"
-BG_SURFACE_ALT = "#162033"
-BG_ELEVATED = "#1E293B"
-BG_ELEVATED_SOFT = "#243044"
-BG_HOVER = "#2A3A52"
-BG_ACTIVE = "#334155"
+BG_BASE = "#080E1A"
+BG_APP = "#0D1626"
+BG_SURFACE = "#111C2E"
+BG_SURFACE_ALT = "#162235"
+BG_ELEVATED = "#1B2A41"
+BG_ELEVATED_SOFT = "#22324B"
+BG_HOVER = "#2A3D59"
+BG_ACTIVE = "#314766"
+BG_PANEL = "#0B1322"
 
-BORDER = "#263244"
-BORDER_LIGHT = "#3B4A61"
-BORDER_STRONG = "#526178"
+BORDER = "#223148"
+BORDER_LIGHT = "#344762"
+BORDER_STRONG = "#526987"
+BORDER_SUBTLE = "#19263A"
 
 TEXT_PRIMARY = "#F8FAFC"
-TEXT_SECONDARY = "#CBD5E1"
+TEXT_SECONDARY = "#D7E0EE"
 TEXT_MUTED = "#94A3B8"
 TEXT_DISABLED = "#64748B"
 
 ACCENT = "#38BDF8"
 ACCENT_HOVER = "#0EA5E9"
 ACCENT_PRESSED = "#0284C7"
-ACCENT_SOFT = "rgba(56, 189, 248, 0.14)"
+ACCENT_SOFT = "rgba(56, 189, 248, 0.12)"
 ACCENT_TEXT = "#03121F"
 
 SUCCESS = "#22C55E"
 ERROR = "#F43F5E"
 WARNING = "#F59E0B"
 
-GRID_LINE = "#050505"
+GRID_LINE = "#030303"
 GRID_LINE_ACTIVE = "#000000"
-GRID_LINE_SOFT = "rgba(0, 0, 0, 0.12)"
+GRID_LINE_SOFT = "rgba(0, 0, 0, 0.14)"
 GRID_HANDLE = "#F8FAFC"
+GRID_HANDLE_HOVER = "#E0F2FE"
 GRID_HANDLE_INNER = "#050505"
-PAIR_IMAGE = "rgba(56, 189, 248, 0.18)"
-PAIR_TEXT = "rgba(34, 197, 94, 0.16)"
+GRID_HANDLE_RAIL = "rgba(15, 23, 42, 0.38)"
+PAIR_IMAGE = "rgba(56, 189, 248, 0.15)"
+PAIR_TEXT = "rgba(34, 197, 94, 0.14)"
 PAIR_PENDING = "rgba(245, 158, 11, 0.24)"
-PAIR_HOVER = "rgba(148, 163, 184, 0.16)"
+PAIR_HOVER = "rgba(148, 163, 184, 0.14)"
 
 # ---------------------------------------------------------------------------
 # Typography
 # ---------------------------------------------------------------------------
 
-FONT_FAMILY = "Inter, Segoe UI, system-ui, sans-serif"
+# Uses installed system fonts first. No bundled font files are required.
+FONT_FAMILY = "Aptos, Segoe UI Variable, Segoe UI, Inter, Arial, sans-serif"
 FONT_SM = 11
 FONT_MD = 13
 FONT_LG = 16
@@ -83,8 +88,8 @@ QWidget {{
     color: {TEXT_PRIMARY};
     font-family: {FONT_FAMILY};
     font-size: {FONT_MD}px;
-    selection-background-color: {ACCENT};
-    selection-color: {ACCENT_TEXT};
+    selection-background-color: {ACCENT_SOFT};
+    selection-color: {TEXT_PRIMARY};
 }}
 
 QMainWindow, QDialog {{
@@ -99,8 +104,8 @@ QWidget#workspace {{
 QWidget#actionBar {{
     background-color: {BG_SURFACE};
     border-bottom: 1px solid {BORDER};
-    min-height: 58px;
-    max-height: 58px;
+    min-height: 62px;
+    max-height: 62px;
 }}
 
 QWidget#actionBar QLabel {{
@@ -110,7 +115,7 @@ QWidget#actionBar QLabel {{
 QLabel#appTitle {{
     color: {TEXT_PRIMARY};
     font-size: {FONT_LG}px;
-    font-weight: 700;
+    font-weight: 750;
 }}
 
 QLabel#appSubtitle,
@@ -128,6 +133,11 @@ QWidget#profileGroup {{
     border-radius: 0;
 }}
 
+QWidget#topActionCluster {{
+    background-color: transparent;
+    border: none;
+}}
+
 /* ── Grid editor control bar ────────────────────────────────────────────── */
 QWidget#controlBar {{
     background-color: {BG_SURFACE};
@@ -143,8 +153,8 @@ QWidget#controlBar QLabel {{
 QLabel#toolLabel {{
     color: {TEXT_SECONDARY};
     font-size: {FONT_SM}px;
-    font-weight: 700;
-    letter-spacing: 0.6px;
+    font-weight: 800;
+    letter-spacing: 0.7px;
     text-transform: uppercase;
 }}
 
@@ -156,9 +166,9 @@ QToolButton {{
     border: 1px solid {BORDER_LIGHT};
     border-radius: 9px;
     padding: 7px 13px;
-    min-height: 18px;
+    min-height: 20px;
     font-size: {FONT_MD}px;
-    font-weight: 600;
+    font-weight: 650;
 }}
 
 QPushButton:hover,
@@ -185,7 +195,7 @@ QToolButton[primary="true"] {{
     background-color: {ACCENT};
     color: {ACCENT_TEXT};
     border-color: {ACCENT};
-    font-weight: 700;
+    font-weight: 750;
 }}
 
 QPushButton[primary="true"]:hover,
@@ -221,21 +231,21 @@ QToolButton::menu-indicator {{
 
 /* ── Segmented control ──────────────────────────────────────────────────── */
 QWidget#segmentedControl {{
-    background-color: transparent;
-    border: none;
-    border-radius: 0;
-    padding: 0;
+    background-color: {BG_PANEL};
+    border: 1px solid {BORDER_SUBTLE};
+    border-radius: 11px;
+    padding: 3px;
 }}
 
 QWidget#segmentedControl QPushButton {{
     background-color: transparent;
     color: {TEXT_MUTED};
     border: none;
-    border-radius: 7px;
+    border-radius: 8px;
     padding: 7px 12px;
-    min-width: 86px;
+    min-width: 84px;
     font-size: {FONT_MD}px;
-    font-weight: 700;
+    font-weight: 750;
 }}
 
 QWidget#segmentedControl QPushButton:hover:!checked {{
@@ -245,9 +255,44 @@ QWidget#segmentedControl QPushButton:hover:!checked {{
 }}
 
 QWidget#segmentedControl QPushButton:checked {{
-    background-color: rgba(56, 189, 248, 0.12);
+    background-color: rgba(56, 189, 248, 0.16);
     color: {ACCENT};
-    border: none;
+    border: 1px solid rgba(56, 189, 248, 0.22);
+}}
+
+
+QPushButton#pageNavButton {{
+    min-width: 30px;
+    max-width: 30px;
+    padding-left: 0;
+    padding-right: 0;
+    font-size: 16px;
+    font-weight: 800;
+}}
+
+QLabel#pageStatus {{
+    color: {TEXT_SECONDARY};
+    font-size: {FONT_SM}px;
+    font-weight: 750;
+    min-width: 70px;
+}}
+
+QPushButton#omitPageButton {{
+    background-color: transparent;
+    color: {TEXT_MUTED};
+    border-color: {BORDER};
+}}
+
+QPushButton#omitPageButton:hover {{
+    background-color: rgba(245, 158, 11, 0.10);
+    color: {WARNING};
+    border-color: rgba(245, 158, 11, 0.38);
+}}
+
+QPushButton#omitPageButton:checked {{
+    background-color: rgba(245, 158, 11, 0.16);
+    color: {WARNING};
+    border-color: rgba(245, 158, 11, 0.55);
 }}
 
 /* ── Menus / dropdowns ──────────────────────────────────────────────────── */
@@ -319,6 +364,19 @@ QComboBox QAbstractItemView {{
     padding: 4px;
 }}
 
+/* ── Splitter / workspace ───────────────────────────────────────────────── */
+QSplitter::handle {{
+    background-color: {BORDER_SUBTLE};
+}}
+
+QSplitter::handle:horizontal {{
+    width: 1px;
+}}
+
+QSplitter::handle:hover {{
+    background-color: {BORDER_LIGHT};
+}}
+
 /* ── PDF viewer ─────────────────────────────────────────────────────────── */
 QWidget#pdfViewer {{
     background-color: {BG_BASE};
@@ -338,7 +396,7 @@ QWidget#previewPanel {{
 QLabel#panelTitle {{
     color: {TEXT_PRIMARY};
     font-size: {FONT_LG}px;
-    font-weight: 700;
+    font-weight: 750;
 }}
 
 QLabel#panelSummary {{
@@ -346,13 +404,19 @@ QLabel#panelSummary {{
     font-size: {FONT_MD}px;
 }}
 
+QWidget#previewTableFrame {{
+    background-color: {BG_BASE};
+    border: 1px solid {BORDER};
+    border-radius: 10px;
+}}
+
 /* ── Table ──────────────────────────────────────────────────────────────── */
 QTableWidget {{
-    background-color: {BG_BASE};
+    background-color: transparent;
     alternate-background-color: {BG_SURFACE_ALT};
     color: {TEXT_PRIMARY};
-    border: 1px solid {BORDER};
-    border-radius: 12px;
+    border: none;
+    border-radius: 0;
     gridline-color: {BORDER};
     font-size: {FONT_MD}px;
     outline: none;
@@ -364,8 +428,13 @@ QTableWidget::item {{
 }}
 
 QTableWidget::item:selected {{
-    background-color: rgba(56, 189, 248, 0.14);
+    background-color: rgba(56, 189, 248, 0.10);
     color: {TEXT_PRIMARY};
+}}
+
+QTableWidget::item:focus {{
+    border: none;
+    outline: none;
 }}
 
 QHeaderView {{
@@ -383,6 +452,10 @@ QHeaderView::section {{
     font-weight: 800;
     text-transform: uppercase;
     letter-spacing: 0.7px;
+}}
+
+QHeaderView::section:last {{
+    border-right: none;
 }}
 
 QTableCornerButton::section {{
@@ -461,7 +534,6 @@ QFrame[frameShape="5"] {{
     color: {BORDER};
 }}
 
-
 /* ── Extraction progress ───────────────────────────────────────────────── */
 QProgressBar#extractProgress {{
     background-color: {BG_BASE};
@@ -476,5 +548,7 @@ QProgressBar#extractProgress::chunk {{
     border-radius: 5px;
 }}
 """
+
+
 
 

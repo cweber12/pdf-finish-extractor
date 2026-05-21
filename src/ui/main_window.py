@@ -12,6 +12,8 @@ from PyQt6.QtWidgets import (
     QMenu,
     QProgressBar,
     QPushButton,
+    QSizePolicy,
+    QSplitter,
     QToolButton,
     QVBoxLayout,
     QWidget,
@@ -104,38 +106,38 @@ class MainWindow(QMainWindow):
 
         root.addWidget(self._build_action_bar())
 
-        content = QWidget()
-        content.setObjectName("workspace")
-        content_layout = QHBoxLayout(content)
-        content_layout.setContentsMargins(0, 0, 0, 0)
-        content_layout.setSpacing(0)
+        self._splitter = QSplitter(Qt.Orientation.Horizontal)
+        self._splitter.setObjectName("workspaceSplitter")
+        self._splitter.setChildrenCollapsible(False)
+        self._splitter.setHandleWidth(1)
 
         self._grid_editor = GridEditor()
+        self._grid_editor.setMinimumWidth(560)
         self._grid_editor.open_requested.connect(self._on_open_pdf)
-        content_layout.addWidget(self._grid_editor, stretch=3)
-
-        sep = QFrame()
-        sep.setFrameShape(QFrame.Shape.VLine)
-        content_layout.addWidget(sep)
+        self._splitter.addWidget(self._grid_editor)
 
         self._preview_panel = PreviewPanel()
+        self._preview_panel.setMinimumWidth(420)
         self._preview_panel.setVisible(False)
-        content_layout.addWidget(self._preview_panel, stretch=2)
+        self._splitter.addWidget(self._preview_panel)
+        self._splitter.setStretchFactor(0, 5)
+        self._splitter.setStretchFactor(1, 3)
+        self._splitter.setSizes([900, 520])
 
-        root.addWidget(content, stretch=1)
+        root.addWidget(self._splitter, stretch=1)
 
     def _build_action_bar(self) -> QWidget:
         bar = QWidget()
         bar.setObjectName("actionBar")
         layout = QHBoxLayout(bar)
-        layout.setContentsMargins(16, 0, 16, 0)
-        layout.setSpacing(12)
+        layout.setContentsMargins(18, 0, 18, 0)
+        layout.setSpacing(10)
 
         # Brand/title group.
         title_group = QWidget()
         title_group.setObjectName("toolbarGroup")
         title_layout = QHBoxLayout(title_group)
-        title_layout.setContentsMargins(12, 6, 12, 6)
+        title_layout.setContentsMargins(0, 6, 8, 6)
         title_layout.setSpacing(10)
 
         title_icon = QLabel()
@@ -153,6 +155,7 @@ class MainWindow(QMainWindow):
         title_stack.addWidget(app_title)
         title_stack.addWidget(app_subtitle)
         title_layout.addLayout(title_stack)
+        title_group.setMaximumWidth(300)
         layout.addWidget(title_group)
 
         # File action.
@@ -167,7 +170,7 @@ class MainWindow(QMainWindow):
         profile_group = QWidget()
         profile_group.setObjectName("profileGroup")
         profile_layout = QHBoxLayout(profile_group)
-        profile_layout.setContentsMargins(10, 5, 10, 5)
+        profile_layout.setContentsMargins(0, 5, 0, 5)
         profile_layout.setSpacing(8)
 
         profile_text = QVBoxLayout()
@@ -175,7 +178,7 @@ class MainWindow(QMainWindow):
         profile_text.setSpacing(0)
         profile_label = QLabel("Profile")
         profile_label.setObjectName("toolLabel")
-        self._profile_helper = QLabel("Save line + pairing sets for similar PDFs")
+        self._profile_helper = QLabel("Reusable line + pair set")
         self._profile_helper.setObjectName("profileHelper")
         profile_text.addWidget(profile_label)
         profile_text.addWidget(self._profile_helper)
@@ -186,6 +189,8 @@ class MainWindow(QMainWindow):
         self._profile_button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
         self._profile_button.setIcon(QIcon(theme.icon_path("save.svg")))
         self._profile_button.setText("No profile selected  ▾")
+        self._profile_button.setMinimumWidth(190)
+        self._profile_button.setMaximumWidth(240)
         self._profile_button.setToolTip("Load a saved grid profile or save the current one.")
         self._profile_menu = QMenu(self._profile_button)
         self._profile_button.setMenu(self._profile_menu)
@@ -229,7 +234,12 @@ class MainWindow(QMainWindow):
 
         self._status_label = QLabel("Open a PDF to begin.")
         self._status_label.setObjectName("statusText")
-        layout.addWidget(self._status_label)
+        self._status_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        self._status_label.setMinimumWidth(160)
+        self._status_label.setMaximumWidth(360)
+        self._status_label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        self._status_label.setToolTip("Open a PDF to begin.")
+        layout.addWidget(self._status_label, stretch=1)
         return bar
 
     # ------------------------------------------------------------------
@@ -247,7 +257,7 @@ class MainWindow(QMainWindow):
         if path:
             self._grid_editor.load_pdf(path)
             self._preview_panel.setVisible(False)
-            self._status_label.setText("PDF loaded. Define or apply a grid profile.")
+            self._set_status("PDF loaded. Define or apply a grid profile.")
 
     def _on_profile_selected(self, name: str) -> None:
         if self._is_extracting():
@@ -259,8 +269,8 @@ class MainWindow(QMainWindow):
             self._grid_editor.apply_profile(profile)
             self._selected_profile_name = name
             self._profile_button.setText(f"{name}  ▾")
-            self._profile_helper.setText("Profile applied to the current PDF")
-            self._status_label.setText(f"Profile applied: {name}")
+            self._profile_helper.setText("Applied to current PDF")
+            self._set_status(f"Profile applied: {name}")
             Toast.show_in(self.window(), f"Profile applied: {name}", success=True)
 
     def _on_save_profile(self) -> None:
@@ -297,7 +307,7 @@ class MainWindow(QMainWindow):
         self._refresh_profiles()
         self._profile_button.setText(f"{saved_name}  ▾")
         self._profile_helper.setText("Current grid saved for reuse")
-        self._status_label.setText(f"Profile saved: {saved_name}")
+        self._set_status(f"Profile saved: {saved_name}")
         Toast.show_in(self.window(), f"Profile saved: {saved_name}", success=True)
 
     def _on_extract(self) -> None:
@@ -314,21 +324,21 @@ class MainWindow(QMainWindow):
             return
 
         self._preview_panel.setVisible(False)
-        self._status_label.setText("Preparing extraction…")
+        self._set_status("Preparing extraction…")
         self._start_extraction_worker(pdf_path, profile)
 
     def _on_cancel_extract(self) -> None:
         if not self._is_extracting() or self._extraction_worker is None:
             return
         self._cancel_extract_btn.setEnabled(False)
-        self._status_label.setText("Cancelling extraction after the current page…")
+        self._set_status("Cancelling extraction after the current page…")
         self._extraction_worker.cancel()
 
     def _on_extraction_progress(self, page_index: int, page_count: int, pairs_extracted: int) -> None:
         completed = page_index + 1
         pct = int((completed / page_count) * 100) if page_count else 0
         self._progress_bar.setValue(max(0, min(100, pct)))
-        self._status_label.setText(
+        self._set_status(
             f"Extracting page {completed}/{page_count} • {pairs_extracted} pairs found"
         )
 
@@ -336,26 +346,33 @@ class MainWindow(QMainWindow):
         extracted_pairs = list(pairs) if isinstance(pairs, list) else []
         self._preview_panel.load(extracted_pairs)
         self._preview_panel.setVisible(bool(extracted_pairs))
+        if extracted_pairs:
+            self._splitter.setSizes([900, 520])
 
         self._set_extraction_running(False)
         if was_cancelled:
             msg = f"Extraction cancelled: {len(extracted_pairs)} pairs found."
-            self._status_label.setText(msg)
+            self._set_status(msg)
             Toast.show_in(self.window(), msg, success=False)
         else:
             msg = f"Extraction complete: {len(extracted_pairs)} pairs found."
-            self._status_label.setText(msg)
+            self._set_status(msg)
             Toast.show_in(self.window(), msg, success=True)
 
     def _on_extraction_failed(self, error: str) -> None:
         self._set_extraction_running(False)
-        self._status_label.setText("Extraction failed.")
+        self._set_status("Extraction failed.")
         detail = error[:120] + "…" if len(error) > 120 else error
         Toast.show_in(self.window(), f"Extraction failed: {detail}", success=False)
 
     def _on_extraction_thread_finished(self) -> None:
         self._extraction_thread = None
         self._extraction_worker = None
+
+    def _set_status(self, text: str) -> None:
+        """Update the compact status area without letting long text stretch the toolbar."""
+        self._status_label.setText(text)
+        self._status_label.setToolTip(text)
 
     def _refresh_profiles(self) -> None:
         if not hasattr(self, "_profile_menu"):

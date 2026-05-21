@@ -9,6 +9,7 @@ from PyQt6.QtGui import QColor, QIcon, QImage, QPixmap
 from PyQt6.QtWidgets import (
     QAbstractItemView,
     QHBoxLayout,
+    QFrame,
     QHeaderView,
     QLabel,
     QPushButton,
@@ -78,15 +79,24 @@ class PreviewPanel(QWidget):
         self._table = QTableWidget(0, 3)
         self._table.setHorizontalHeaderLabels(["Swatch", "Material ID", "Status"])
         self._table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
-        self._table.setColumnWidth(0, 84)
-        self._table.setColumnWidth(2, 112)
+        self._table.setColumnWidth(0, 92)
+        self._table.setColumnWidth(2, 96)
         self._table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self._table.setSelectionMode(QAbstractItemView.SelectionMode.MultiSelection)
         self._table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self._table.setAlternatingRowColors(True)
         self._table.setShowGrid(False)
+        self._table.setFrameShape(QFrame.Shape.NoFrame)
+        self._table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._table.setCornerButtonEnabled(False)
         self._table.verticalHeader().setVisible(False)
-        layout.addWidget(self._table, stretch=1)
+        table_frame = QFrame()
+        table_frame.setObjectName("previewTableFrame")
+        table_layout = QVBoxLayout(table_frame)
+        table_layout.setContentsMargins(0, 0, 0, 0)
+        table_layout.setSpacing(0)
+        table_layout.addWidget(self._table)
+        layout.addWidget(table_frame, stretch=1)
 
         btn_row = QHBoxLayout()
         btn_row.setContentsMargins(0, 2, 0, 0)
@@ -114,7 +124,7 @@ class PreviewPanel(QWidget):
             thumb_label = QLabel()
             thumb_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
             thumb_label.setStyleSheet(
-                f"background-color: {theme.BG_BASE}; border-radius: 8px; padding: 4px;"
+                f"background-color: {theme.BG_PANEL}; border-radius: 7px; padding: 4px;"
             )
             pixmap = _bytes_to_pixmap(pair.image_bytes)
             if pixmap:
@@ -147,7 +157,7 @@ class PreviewPanel(QWidget):
                 status_item.setForeground(QColor(theme.TEXT_MUTED))
             self._table.setItem(row, 2, status_item)
 
-            self._table.setRowHeight(row, 78)
+            self._table.setRowHeight(row, 74)
             self._table.selectRow(row)
 
         new_count = len(pairs) - duplicates
@@ -219,3 +229,4 @@ class PreviewPanel(QWidget):
             self._table.setItem(row, 2, item)
         item.setText(text)
         item.setForeground(QColor(color))
+

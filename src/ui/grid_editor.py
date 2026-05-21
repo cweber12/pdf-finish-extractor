@@ -8,6 +8,8 @@ add_h    – crosshair cursor; click-drag to place a horizontal line.
 add_v    – crosshair cursor; click-drag to place a vertical line.
 pairing  – click an image cell then a text cell to create a pair;
            right-click on a cell to remove any pair that contains it.
+omit     – click-drag to mark a page-specific area that should be skipped
+           during extraction; right-click an omitted region to remove it.
 
 Grid line coordinates are stored in 150-DPI pixel space so they match the
 coordinate system used by the Extractor.
@@ -15,7 +17,7 @@ coordinate system used by the Extractor.
 
 from __future__ import annotations
 
-from PyQt6.QtCore import QPoint, QRect, QRectF, Qt, pyqtSignal
+from PyQt6.QtCore import QPoint, QPointF, QRect, QRectF, Qt, pyqtSignal
 from PyQt6.QtGui import QBrush, QColor, QFont, QIcon, QMouseEvent, QPainter, QPen, QPixmap
 from PyQt6.QtWidgets import (
     QHBoxLayout,
@@ -26,7 +28,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from src.extraction.grid import CellPair, Grid
+from src.extraction.grid import CellPair, Grid, OmitRegion
 from src.ui import theme
 from src.ui.pdf_viewer import PDFViewer
 
@@ -36,17 +38,31 @@ from src.ui.pdf_viewer import PDFViewer
 
 _LINE_COLOR = QColor(theme.GRID_LINE)
 _LINE_ACTIVE = QColor(theme.GRID_LINE_ACTIVE)
-_PREVIEW_COLOR = QColor(0, 0, 0, 150)
-_HANDLE_COLOR = QColor(theme.GRID_HANDLE)
-_HANDLE_INNER = QColor(theme.GRID_HANDLE_INNER)
-_HANDLE_BORDER = QColor(15, 23, 42, 120)
-_PAGE_BORDER = QColor(15, 23, 42, 160)
-_PAGE_SHADOW = QColor(0, 0, 0, 70)
-_HANDLE_OFFSET = 12
-_LINE_HIT_DIST = 6
+_PREVIEW_COLOR = QColor(0, 0, 0, 155)
+# Dark rail tabs intentionally match the surrounding control-panel chrome.
+# They stay fixed on the line center; overlapped handles no longer jump into
+# alternate lanes. Hovered/active handles are drawn last so the target remains
+# discoverable without visual shifting.
+_HANDLE_COLOR = QColor(theme.BG_ELEVATED)
+_HANDLE_HOVER = QColor(theme.BG_ACTIVE)
+_HANDLE_INNER = QColor(theme.ACCENT)
+_HANDLE_RAIL = QColor(82, 105, 135, 105)
+_HANDLE_BORDER = QColor(theme.BORDER_LIGHT)
+_HANDLE_ACTIVE_BORDER = QColor(theme.ACCENT)
+_PAGE_BORDER = QColor(15, 23, 42, 185)
+_PAGE_SHADOW = QColor(0, 0, 0, 55)
+_HANDLE_OUTSET = 14
+_HANDLE_LENGTH = 22
+_HANDLE_THICKNESS = 9
+_LINE_HIT_DIST = 5
+_MIN_LINE_GAP_ORIG = 3
 
 _PENDING_FILL = QColor(245, 158, 11, 64)
 _HOVER_FILL = QColor(148, 163, 184, 42)
+_OMIT_FILL = QColor(15, 23, 42, 96)
+_OMIT_BORDER = QColor(theme.WARNING)
+_OMIT_PREVIEW_FILL = QColor(245, 158, 11, 48)
+_OMITTED_PAGE_FILL = QColor(15, 23, 42, 122)
 
 # Per-pair fill colours: (image_cell_fill, text_cell_fill)
 _PAIR_FILLS: list[tuple[QColor, QColor]] = [
@@ -64,34 +80,48 @@ _PAIR_FILLS: list[tuple[QColor, QColor]] = [
 
 def _draw_handle(
     painter: QPainter,
-    cx: int,
-    cy: int,
+    rect: QRectF,
     orientation: str,
     active: bool = False,
 ) -> None:
-    """Draw a compact drag tab outside the PDF page edge.
+    """Draw a compact dark drag tab anchored to the outside rail.
 
-    Horizontal-line handles sit just outside the left page border.
-    Vertical-line handles sit just outside the top page border. The handles are
-    intentionally narrow so adjacent grid lines do not visually overlap.
+    The tab is intentionally squared-off instead of pill-shaped so it feels
+    more like part of the app chrome. Handles do not shift into alternate
+    lanes; when two are close together, hover/drag state determines which one
+    is drawn on top.
     """
-    if orientation == "h":
-        rect = QRectF(cx - 12, cy - 5, 24, 10)
-        grip_rects = [QRectF(cx - 6, cy - 3 + offset, 12, 1.4) for offset in (0, 3, 6)]
-        radius = 5
-    else:
-        rect = QRectF(cx - 5, cy - 12, 10, 24)
-        grip_rects = [QRectF(cx - 3 + offset, cy - 6, 1.4, 12) for offset in (0, 3, 6)]
-        radius = 5
+    radius = 3.0
 
-    painter.setPen(QPen(_HANDLE_BORDER, 0.8))
-    painter.setBrush(QBrush(QColor(255, 255, 255, 250) if active else _HANDLE_COLOR))
+    shadow = rect.translated(0, 1.2)
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.setBrush(QBrush(QColor(0, 0, 0, 86)))
+    painter.drawRoundedRect(shadow, radius, radius)
+
+    painter.setPen(QPen(_HANDLE_ACTIVE_BORDER if active else _HANDLE_BORDER, 1.0))
+    painter.setBrush(QBrush(_HANDLE_HOVER if active else _HANDLE_COLOR))
     painter.drawRoundedRect(rect, radius, radius)
 
+    # Small accent strip visually connects the tab to the editable boundary
+    # without using a bright white control surface.
     painter.setPen(Qt.PenStyle.NoPen)
-    painter.setBrush(QBrush(_LINE_ACTIVE if active else _HANDLE_INNER))
-    for grip in grip_rects:
-        painter.drawRoundedRect(grip, 0.7, 0.7)
+    painter.setBrush(QBrush(_HANDLE_ACTIVE_BORDER if active else QColor(theme.BORDER_STRONG)))
+    if orientation == "h":
+        accent = QRectF(rect.right() - 2.2, rect.top() + 2.0, 1.4, rect.height() - 4.0)
+    else:
+        accent = QRectF(rect.left() + 2.0, rect.bottom() - 2.2, rect.width() - 4.0, 1.4)
+    painter.drawRoundedRect(accent, 0.7, 0.7)
+
+    center = rect.center()
+    painter.setBrush(QBrush(_HANDLE_INNER if active else QColor(148, 163, 184, 210)))
+    if orientation == "h":
+        for offset in (-2.6, 0, 2.6):
+            grip = QRectF(center.x() - 5.0, center.y() + offset - 0.55, 8.5, 1.1)
+            painter.drawRoundedRect(grip, 0.55, 0.55)
+    else:
+        for offset in (-2.6, 0, 2.6):
+            grip = QRectF(center.x() + offset - 0.55, center.y() - 5.0, 1.1, 8.5)
+            painter.drawRoundedRect(grip, 0.55, 0.55)
 
 
 def _draw_badge(painter: QPainter, cx: int, cy: int, text: str) -> None:
@@ -154,6 +184,8 @@ class _OverlayWidget(QWidget):
         page_rect = _page_rect_display(h_d, v_d)
         _draw_page_frame(painter, page_rect)
 
+        current_page = e.current_page_index()
+
         # --- Cell fills: paired cells ---
         for idx, pair in enumerate(e._pairs):
             fills = _PAIR_FILLS[idx % len(_PAIR_FILLS)]
@@ -178,6 +210,20 @@ class _OverlayWidget(QWidget):
             if r:
                 painter.fillRect(r, _HOVER_FILL)
 
+        # --- Page/region omission overlays ---
+        for region in e._regions_for_current_page():
+            r = _omit_region_rect_display(region, e)
+            if r and r.isValid():
+                painter.fillRect(r, _OMIT_FILL)
+                pen = QPen(_OMIT_BORDER, 1, Qt.PenStyle.DashLine)
+                pen.setCosmetic(True)
+                painter.setPen(pen)
+                painter.drawRect(r.adjusted(0, 0, -1, -1))
+
+        if current_page in e._omitted_pages:
+            painter.fillRect(page_rect, _OMITTED_PAGE_FILL)
+            _draw_center_label(painter, page_rect, "Page omitted")
+
         # --- Grid lines ---
         line_pen = QPen(_LINE_COLOR, 1)
         line_pen.setCosmetic(True)
@@ -196,15 +242,28 @@ class _OverlayWidget(QWidget):
             painter.setPen(active_pen if active else line_pen)
             painter.drawLine(x_d, page_rect.top(), x_d, page_rect.bottom())
 
-        # --- Drag handles ---
-        handle_left_x = page_rect.left() - _HANDLE_OFFSET
-        handle_top_y = page_rect.top() - _HANDLE_OFFSET
-        for idx, y_d in enumerate(h_d[1:-1]):
-            active = hovered == ("h", idx) or dragging == ("h", idx)
-            _draw_handle(painter, handle_left_x, y_d, "h", active)
-        for idx, x_d in enumerate(v_d[1:-1]):
-            active = hovered == ("v", idx) or dragging == ("v", idx)
-            _draw_handle(painter, x_d, handle_top_y, "v", active)
+        # --- Drag rails and handles ---
+        handle_rects = _handle_rects_display(page_rect, h_d, v_d)
+        painter.setPen(QPen(_HANDLE_RAIL, 1))
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        if h_d[1:-1]:
+            rail_x = min(rect.left() for key, rect in handle_rects.items() if key[0] == "h") - 3
+            painter.drawLine(int(rail_x), page_rect.top(), int(rail_x), page_rect.bottom())
+        if v_d[1:-1]:
+            rail_y = min(rect.top() for key, rect in handle_rects.items() if key[0] == "v") - 3
+            painter.drawLine(page_rect.left(), int(rail_y), page_rect.right(), int(rail_y))
+
+        # Draw inactive handles first, then hovered/dragged handles. This keeps
+        # close handles stable without shifting them into extra lanes.
+        active_handles: list[tuple[str, int, QRectF]] = []
+        for (kind, idx), rect in handle_rects.items():
+            active = hovered == (kind, idx) or dragging == (kind, idx)
+            if active:
+                active_handles.append((kind, idx, rect))
+            else:
+                _draw_handle(painter, rect, kind, False)
+        for kind, _idx, rect in active_handles:
+            _draw_handle(painter, rect, kind, True)
 
         # --- Preview line (while placing) ---
         if e._preview is not None:
@@ -217,6 +276,15 @@ class _OverlayWidget(QWidget):
             elif e._mode == "add_v":
                 x_d = e._o2d(e._preview, 0)[0]
                 painter.drawLine(x_d, page_rect.top(), x_d, page_rect.bottom())
+
+        if e._omit_preview is not None:
+            r = _rect_orig_to_display(e._omit_preview, e)
+            if r and r.isValid():
+                painter.fillRect(r, _OMIT_PREVIEW_FILL)
+                pen = QPen(_OMIT_BORDER, 1, Qt.PenStyle.DashLine)
+                pen.setCosmetic(True)
+                painter.setPen(pen)
+                painter.drawRect(r.adjusted(0, 0, -1, -1))
 
         # --- Pair badges ---
         for idx, pair in enumerate(e._pairs):
@@ -267,6 +335,65 @@ def _page_rect_display(h_d: list[int], v_d: list[int]) -> QRect:
     return QRect(v_d[0], h_d[0], v_d[-1] - v_d[0], h_d[-1] - h_d[0])
 
 
+def _draw_center_label(painter: QPainter, rect: QRect, text: str) -> None:
+    label_rect = QRectF(rect.center().x() - 86, rect.center().y() - 18, 172, 36)
+    painter.setPen(QPen(QColor(15, 23, 42, 180), 1))
+    painter.setBrush(QBrush(QColor(248, 250, 252, 224)))
+    painter.drawRoundedRect(label_rect, 6, 6)
+
+    f = QFont()
+    f.setPointSize(9)
+    f.setBold(True)
+    painter.setFont(f)
+    painter.setPen(QColor(15, 23, 42))
+    painter.drawText(label_rect.toRect(), Qt.AlignmentFlag.AlignCenter, text)
+
+
+def _rect_orig_to_display(rect: tuple[int, int, int, int], editor: GridEditor) -> QRect | None:
+    x0, y0, x1, y1 = rect
+    left, right = sorted((x0, x1))
+    top, bottom = sorted((y0, y1))
+    dx0, dy0 = editor._o2d(left, top)
+    dx1, dy1 = editor._o2d(right, bottom)
+    return QRect(dx0, dy0, dx1 - dx0, dy1 - dy0).normalized()
+
+
+def _omit_region_rect_display(region: OmitRegion, editor: GridEditor) -> QRect | None:
+    return _rect_orig_to_display(region.rect, editor)
+
+
+def _handle_rects_display(
+    page_rect: QRect, h_d: list[int], v_d: list[int]
+) -> dict[tuple[str, int], QRectF]:
+    """Return stable outside-rail drag handle rects in display space.
+
+    Handles are always centered on their associated line and never move into
+    alternate lanes. Compact tab dimensions reduce visual overlap, while the
+    hit-test code selects the nearest candidate if two handles are close.
+    """
+    rects: dict[tuple[str, int], QRectF] = {}
+
+    h_tab_x = page_rect.left() - _HANDLE_OUTSET
+    for idx, cy in enumerate(h_d[1:-1]):
+        rects[("h", idx)] = QRectF(
+            h_tab_x - (_HANDLE_LENGTH / 2),
+            cy - (_HANDLE_THICKNESS / 2),
+            _HANDLE_LENGTH,
+            _HANDLE_THICKNESS,
+        )
+
+    v_tab_y = page_rect.top() - _HANDLE_OUTSET
+    for idx, cx in enumerate(v_d[1:-1]):
+        rects[("v", idx)] = QRectF(
+            cx - (_HANDLE_THICKNESS / 2),
+            v_tab_y - (_HANDLE_LENGTH / 2),
+            _HANDLE_THICKNESS,
+            _HANDLE_LENGTH,
+        )
+
+    return rects
+
+
 # ------------------------------------------------------------------
 # Grid editor
 # ------------------------------------------------------------------
@@ -284,6 +411,8 @@ class GridEditor(QWidget):
         self._h_lines: list[int] = []
         self._v_lines: list[int] = []
         self._pairs: list[CellPair] = []
+        self._omitted_pages: set[int] = set()
+        self._omit_regions: list[OmitRegion] = []
 
         # Interaction state
         self._mode: str = "idle"
@@ -293,6 +422,8 @@ class GridEditor(QWidget):
         self._hovered_line: tuple[str, int] | None = None
         self._pending_image: tuple[int, int] | None = None
         self._hovered_cell: tuple[int, int] | None = None
+        self._omit_start: tuple[int, int] | None = None
+        self._omit_preview: tuple[int, int, int, int] | None = None
 
         self.pdf_path: str | None = None
 
@@ -326,6 +457,7 @@ class GridEditor(QWidget):
             (QIcon(theme.icon_path("h-line.svg")), "Rows", "add_h", "Click-drag to add a horizontal row boundary."),
             (QIcon(theme.icon_path("v-line.svg")), "Columns", "add_v", "Click-drag to add a vertical column boundary."),
             (QIcon(theme.icon_path("link.svg")), "Pair", "pairing", "Click an image cell, then its matching ID/text cell."),
+            (QIcon(), "Ignore Area", "omit", "Click-drag a page-specific area to skip during extraction."),
         ]
         for icon, label, mode, tooltip in modes:
             btn = QPushButton(icon, f"  {label}")
@@ -336,6 +468,29 @@ class GridEditor(QWidget):
             seg_layout.addWidget(btn)
 
         bar.addWidget(seg)
+
+        self._prev_page_btn = QPushButton("‹")
+        self._prev_page_btn.setObjectName("pageNavButton")
+        self._prev_page_btn.setToolTip("Previous page")
+        self._prev_page_btn.clicked.connect(lambda: self._go_to_page(self.current_page_index() - 1))
+        bar.addWidget(self._prev_page_btn)
+
+        self._page_label = QLabel("Page —/—")
+        self._page_label.setObjectName("pageStatus")
+        bar.addWidget(self._page_label)
+
+        self._next_page_btn = QPushButton("›")
+        self._next_page_btn.setObjectName("pageNavButton")
+        self._next_page_btn.setToolTip("Next page")
+        self._next_page_btn.clicked.connect(lambda: self._go_to_page(self.current_page_index() + 1))
+        bar.addWidget(self._next_page_btn)
+
+        self._omit_page_btn = QPushButton("Omit Page")
+        self._omit_page_btn.setCheckable(True)
+        self._omit_page_btn.setObjectName("omitPageButton")
+        self._omit_page_btn.setToolTip("Skip this entire page during extraction.")
+        self._omit_page_btn.clicked.connect(self._toggle_current_page_omitted)
+        bar.addWidget(self._omit_page_btn)
 
         self._hint = QLabel("Drag existing handles to move lines. Right-click a line to remove it.")
         self._hint.setObjectName("toolbarHint")
@@ -417,7 +572,8 @@ class GridEditor(QWidget):
         self.pdf_path = path
         self._viewer.open(path)
         self._stack.setCurrentIndex(1)
-        self._set_hint("Use Rows or Columns to place boundaries. Drag handles to adjust.")
+        self._set_hint("Use Rows or Columns to place boundaries on any page. The grid applies to all pages.")
+        self._update_page_controls()
         self._reposition_overlay()
 
     def current_profile(self) -> Grid | None:
@@ -427,16 +583,64 @@ class GridEditor(QWidget):
             horizontal_lines=sorted(self._h_lines),
             vertical_lines=sorted(self._v_lines),
             pairs=list(self._pairs),
+            omitted_pages=sorted(self._omitted_pages),
+            omit_regions=list(self._omit_regions),
         )
 
     def apply_profile(self, grid: Grid) -> None:
-        self._h_lines = list(grid.horizontal_lines)
-        self._v_lines = list(grid.vertical_lines)
+        self._h_lines = sorted(grid.horizontal_lines)
+        self._v_lines = sorted(grid.vertical_lines)
         self._pairs = list(grid.pairs)
+        self._omitted_pages = set(grid.omitted_pages)
+        self._omit_regions = list(grid.omit_regions)
         self._pending_image = None
         self._hovered_cell = None
         self._hovered_line = None
-        self._set_hint("Profile applied. Fine-tune lines by dragging their handles.")
+        self._omit_start = None
+        self._omit_preview = None
+        self._set_hint("Profile applied. Navigate pages to review page/section omissions.")
+        self._update_page_controls()
+        self._overlay.update()
+
+    def current_page_index(self) -> int:
+        return self._viewer.page_index
+
+    def _regions_for_current_page(self) -> list[OmitRegion]:
+        page_index = self.current_page_index()
+        return [region for region in self._omit_regions if region.page_index == page_index]
+
+    def _update_page_controls(self) -> None:
+        page_count = self._viewer.page_count
+        page_index = self.current_page_index()
+        has_pages = page_count > 0
+        self._prev_page_btn.setEnabled(has_pages and page_index > 0)
+        self._next_page_btn.setEnabled(has_pages and page_index < page_count - 1)
+        self._omit_page_btn.setEnabled(has_pages)
+        self._page_label.setText(f"Page {page_index + 1}/{page_count}" if has_pages else "Page —/—")
+        self._omit_page_btn.setChecked(page_index in self._omitted_pages)
+
+    def _go_to_page(self, index: int) -> None:
+        if index < 0 or index >= self._viewer.page_count:
+            return
+        self._viewer.load_page(index)
+        self._pending_image = None
+        self._hovered_cell = None
+        self._hovered_line = None
+        self._omit_start = None
+        self._omit_preview = None
+        self._update_page_controls()
+        self._set_hint("Viewing page %d. Grid edits here still apply to every page." % (index + 1))
+        self._reposition_overlay()
+
+    def _toggle_current_page_omitted(self) -> None:
+        page_index = self.current_page_index()
+        if page_index in self._omitted_pages:
+            self._omitted_pages.remove(page_index)
+            self._set_hint("Current page will be included during extraction.")
+        else:
+            self._omitted_pages.add(page_index)
+            self._set_hint("Current page will be skipped during extraction.")
+        self._update_page_controls()
         self._overlay.update()
 
     # ------------------------------------------------------------------
@@ -478,17 +682,91 @@ class GridEditor(QWidget):
                         return (ri, ci)
         return None
 
+    def _omit_region_at_orig(self, ox: int, oy: int) -> int | None:
+        for idx in range(len(self._omit_regions) - 1, -1, -1):
+            region = self._omit_regions[idx]
+            if region.page_index != self.current_page_index():
+                continue
+            x0, y0, x1, y1 = region.rect
+            if x0 <= ox <= x1 and y0 <= oy <= y1:
+                return idx
+        return None
+
+    def _clamped_orig_point(self, ox: int, oy: int) -> tuple[int, int]:
+        orig = self._viewer.pixmap
+        if orig is None:
+            return max(0, ox), max(0, oy)
+        return (
+            max(0, min(orig.width(), ox)),
+            max(0, min(orig.height(), oy)),
+        )
+
+    def _normalized_omit_rect(self, start: tuple[int, int], end: tuple[int, int]) -> tuple[int, int, int, int] | None:
+        x0, y0 = start
+        x1, y1 = end
+        left, right = sorted((x0, x1))
+        top, bottom = sorted((y0, y1))
+        if right - left < 8 or bottom - top < 8:
+            return None
+        return left, top, right, bottom
+
     def _line_hit(self, dx: int, dy: int) -> tuple[int | None, int | None]:
-        """Return (h_index, None) or (None, v_index) if within hit distance."""
-        for i, y_orig in enumerate(self._h_lines):
-            y_d = self._o2d(0, y_orig)[1]
+        """Return (h_index, None) or (None, v_index) if near a line/handle."""
+        h_d, v_d = self._grid_display_boundaries()
+        page_rect = _page_rect_display(h_d, v_d)
+        point = QPointF(dx, dy)
+
+        # Handles are the most intentional drag target, so they take priority.
+        # If compact handles visually overlap, choose the nearest line instead
+        # of moving handles into alternate lanes.
+        handle_candidates: list[tuple[float, str, int]] = []
+        for (kind, idx), rect in _handle_rects_display(page_rect, h_d, v_d).items():
+            if rect.adjusted(-5, -5, 5, 5).contains(point):
+                distance = abs(dy - rect.center().y()) if kind == "h" else abs(dx - rect.center().x())
+                handle_candidates.append((distance, kind, idx))
+        if handle_candidates:
+            _distance, kind, idx = min(handle_candidates, key=lambda item: item[0])
+            return (idx, None) if kind == "h" else (None, idx)
+
+        # Lines remain draggable, but only across the visible page area.
+        if not page_rect.adjusted(-2, -2, 2, 2).contains(QPoint(dx, dy)):
+            return None, None
+
+        for i, y_d in enumerate(h_d[1:-1]):
             if abs(dy - y_d) <= _LINE_HIT_DIST:
                 return i, None
-        for i, x_orig in enumerate(self._v_lines):
-            x_d = self._o2d(x_orig, 0)[0]
+        for i, x_d in enumerate(v_d[1:-1]):
             if abs(dx - x_d) <= _LINE_HIT_DIST:
                 return None, i
         return None, None
+
+    def _bounded_line_value(self, dtype: str, idx: int, value: int) -> int:
+        """Clamp a dragged line so it cannot cross adjacent boundaries."""
+        orig = self._viewer.pixmap
+        if orig is None:
+            return max(0, value)
+
+        lines = self._h_lines if dtype == "h" else self._v_lines
+        max_value = orig.height() if dtype == "h" else orig.width()
+        if idx < 0 or idx >= len(lines):
+            return max(0, min(max_value, value))
+
+        lower = 0 if idx == 0 else lines[idx - 1] + _MIN_LINE_GAP_ORIG
+        upper = max_value if idx == len(lines) - 1 else lines[idx + 1] - _MIN_LINE_GAP_ORIG
+        if lower > upper:
+            return lines[idx]
+        return max(lower, min(upper, value))
+
+    def _can_place_line(self, dtype: str, value: int) -> bool:
+        """Prevent duplicate/stacked lines that create ambiguous drag handles."""
+        orig = self._viewer.pixmap
+        if orig is None:
+            return False
+        max_value = orig.height() if dtype == "h" else orig.width()
+        if value <= 0 or value >= max_value:
+            return False
+        lines = self._h_lines if dtype == "h" else self._v_lines
+        return all(abs(existing - value) >= _MIN_LINE_GAP_ORIG for existing in lines)
 
     # ------------------------------------------------------------------
     # Mode / cursor management
@@ -496,12 +774,14 @@ class GridEditor(QWidget):
 
     def _set_mode(self, mode: str, active_btn: QPushButton) -> None:
         self._mode = mode if active_btn.isChecked() else "idle"
-        for attr in ("_btn_add_h", "_btn_add_v", "_btn_pairing"):
+        for attr in ("_btn_add_h", "_btn_add_v", "_btn_pairing", "_btn_omit"):
             btn = getattr(self, attr, None)
             if btn and btn is not active_btn:
                 btn.setChecked(False)
         self._pending_image = None
         self._hovered_cell = None
+        self._omit_start = None
+        self._omit_preview = None
         self._overlay.update()
         self._update_cursor(None, None)
 
@@ -510,6 +790,7 @@ class GridEditor(QWidget):
             "add_h": "Click-drag across the PDF to place a horizontal row boundary.",
             "add_v": "Click-drag across the PDF to place a vertical column boundary.",
             "pairing": "Click the image cell first, then click the matching ID/text cell.",
+            "omit": "Click-drag a section on this page to ignore during extraction. Right-click an ignored section to remove it.",
         }
         self._set_hint(hints.get(self._mode, hints["idle"]))
 
@@ -525,7 +806,7 @@ class GridEditor(QWidget):
             if hit_v is not None:
                 self._overlay.setCursor(Qt.CursorShape.SizeHorCursor)
                 return
-        if self._mode in ("add_h", "add_v"):
+        if self._mode in ("add_h", "add_v", "omit"):
             self._overlay.setCursor(Qt.CursorShape.CrossCursor)
         else:
             self._overlay.setCursor(Qt.CursorShape.ArrowCursor)
@@ -565,6 +846,12 @@ class GridEditor(QWidget):
             self._overlay.update()
         elif self._mode == "pairing":
             self._on_pair_click(ox, oy)
+        elif self._mode == "omit":
+            start = self._clamped_orig_point(ox, oy)
+            self._omit_start = start
+            self._omit_preview = (*start, *start)
+            self._set_hint("Dragging ignored area. Release to save it for this page.")
+            self._overlay.update()
 
     def _on_move(self, event: QMouseEvent) -> None:
         pos = event.position().toPoint()
@@ -574,9 +861,15 @@ class GridEditor(QWidget):
         if self._dragging:
             dtype, idx = self._dragging
             if dtype == "h":
-                self._h_lines[idx] = max(0, oy)
+                self._h_lines[idx] = self._bounded_line_value("h", idx, oy)
             else:
-                self._v_lines[idx] = max(0, ox)
+                self._v_lines[idx] = self._bounded_line_value("v", idx, ox)
+            self._overlay.update()
+            return
+
+        if self._omit_start is not None and self._mode == "omit":
+            end = self._clamped_orig_point(ox, oy)
+            self._omit_preview = (*self._omit_start, *end)
             self._overlay.update()
             return
 
@@ -594,6 +887,14 @@ class GridEditor(QWidget):
             self._hovered_line = None
         self._update_cursor(dx, dy)
 
+        if self._mode == "omit":
+            region_idx = self._omit_region_at_orig(ox, oy)
+            if region_idx is not None:
+                del self._omit_regions[region_idx]
+                self._set_hint("Ignored section removed.")
+                self._overlay.update()
+            return
+
         if self._mode == "pairing":
             self._hovered_cell = self._cell_at_orig(ox, oy)
         else:
@@ -604,7 +905,25 @@ class GridEditor(QWidget):
         if event.button() != Qt.MouseButton.LeftButton:
             return
 
+        if self._omit_start is not None and self._mode == "omit":
+            end = self._clamped_orig_point(*self._d2o(
+                event.position().toPoint().x(),
+                event.position().toPoint().y(),
+            ))
+            rect = self._normalized_omit_rect(self._omit_start, end)
+            if rect is not None:
+                self._omit_regions.append(OmitRegion(page_index=self.current_page_index(), rect=rect))
+                self._set_hint("Ignored section added for this page. Right-click it in Ignore Area mode to remove it.")
+            else:
+                self._set_hint("Ignored section was too small to save.")
+            self._omit_start = None
+            self._omit_preview = None
+            self._overlay.update()
+            return
+
         if self._dragging:
+            self._h_lines.sort()
+            self._v_lines.sort()
             self._dragging = None
             self._set_hint("Line moved. Right-click any line to delete it.")
             self._overlay.update()
@@ -613,17 +932,33 @@ class GridEditor(QWidget):
         if self._placing:
             if self._preview is not None:
                 if self._mode == "add_h":
-                    self._h_lines.append(self._preview)
-                    self._set_hint("Row boundary added. Drag its handle to adjust.")
+                    if self._can_place_line("h", self._preview):
+                        self._h_lines.append(self._preview)
+                        self._h_lines.sort()
+                        self._set_hint("Row boundary added. Drag its handle to adjust.")
+                    else:
+                        self._set_hint("Row boundary is too close to another line or page edge.")
                 elif self._mode == "add_v":
-                    self._v_lines.append(self._preview)
-                    self._set_hint("Column boundary added. Drag its handle to adjust.")
+                    if self._can_place_line("v", self._preview):
+                        self._v_lines.append(self._preview)
+                        self._v_lines.sort()
+                        self._set_hint("Column boundary added. Drag its handle to adjust.")
+                    else:
+                        self._set_hint("Column boundary is too close to another line or page edge.")
             self._placing = False
             self._preview = None
             self._overlay.update()
 
     def _on_right_click(self, dx: int, dy: int) -> None:
         ox, oy = self._d2o(dx, dy)
+
+        if self._mode == "omit":
+            region_idx = self._omit_region_at_orig(ox, oy)
+            if region_idx is not None:
+                del self._omit_regions[region_idx]
+                self._set_hint("Ignored section removed.")
+                self._overlay.update()
+            return
 
         if self._mode == "pairing":
             if self._pending_image is not None:
@@ -679,9 +1014,19 @@ class GridEditor(QWidget):
         self._h_lines.clear()
         self._v_lines.clear()
         self._pairs.clear()
+        self._omitted_pages.clear()
+        self._omit_regions.clear()
         self._pending_image = None
         self._hovered_cell = None
         self._hovered_line = None
-        self._set_hint("Grid cleared. Add row and column boundaries to start again.")
+        self._omit_start = None
+        self._omit_preview = None
+        self._update_page_controls()
+        self._set_hint("Grid and omissions cleared. Add row and column boundaries to start again.")
         self._overlay.update()
+
+
+
+
+
 
