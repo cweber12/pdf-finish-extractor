@@ -23,12 +23,14 @@ pdf-finish-extractor/
     │   ├── grid.py           Grid data model (lines, explicit CellPair list).
     │   ├── extractor.py      Applies a Grid to a PDF; returns ExtractedPair list.
     │   └── image_processing.py  Compresses images to WebP (matches client rules).
+    ├── exporting/            File export logic — no UI, extraction, or network I/O.
+    │   └── swatch_workbook.py  Writes extracted IDs and swatch images to Excel.
     └── upload/               Network I/O — no extraction or UI logic.
         ├── worker_client.py  POSTs swatch to Cloudflare Worker (R2 + DB write).
         └── neon_client.py    Read-only Neon queries (duplicate detection only).
 ```
 
-**Dependency rule:** `ui` → `extraction`, `upload`. `extraction` and `upload` have no dependency on each other or on `ui`.
+**Dependency rule:** `ui` → `extraction`, `exporting`, `upload`. `exporting` accepts swatch rows with `material_id` and `image_bytes` fields but has no dependency on UI, extraction internals, or network code. `extraction` and `upload` have no dependency on each other or on `ui`.
 
 ---
 
@@ -64,18 +66,23 @@ NeonClient.material_ids_in_db() — marks duplicates for preview
       │
       ▼
 PreviewPanel — user reviews, deselects rows, clicks Upload
-      │  List[ExtractedPair] (selected)
-      ▼
-image_processing.compress_image() — WebP, max 1920 px, 85% quality
+      ├─ Export Excel:
+      │    ├─ collect manufacturer/category from the user
+      │    └─ exporting.export_swatch_workbook() writes header rows plus ID/image rows
       │
-      ▼
-WorkerClient.upload() (per row, with inline status updates)
-  ├─ resolve material UUID via GET /api/v1/projects/{projectId}/materials
-  ├─ if not found: POST to create material record
-  └─ POST /api/v1/images?entity_type=material&entity_id={uuid} with WebP bytes
-      │
-      ▼
-Worker (backend) — upload to R2, upsert image_assets row in Neon
+      └─ Upload selected:
+           │  List[ExtractedPair] (selected)
+           ▼
+      image_processing.compress_image() — WebP, max 1920 px, 85% quality
+           │
+           ▼
+      WorkerClient.upload() (per row, with inline status updates)
+        ├─ resolve material UUID via GET /api/v1/projects/{projectId}/materials
+        ├─ if not found: POST to create material record
+        └─ POST /api/v1/images?entity_type=material&entity_id={uuid} with WebP bytes
+           │
+           ▼
+      Worker (backend) — upload to R2, upsert image_assets row in Neon
 ```
 
 ---
@@ -120,6 +127,16 @@ The Cloudflare Worker backend handles the R2 upload and Neon database upsert, so
 
 The grid defined on page 1 is applied unchanged to every subsequent page. No per-page adjustment is made. If a page has fewer filled cells than the grid implies (e.g. the last page of a catalog), cells that yield empty text are silently skipped — no pair is emitted for them.
 
+### Excel swatch export
+
+`PreviewPanel` can export selected extracted rows to an `.xlsx` workbook after prompting the user for manufacturer and category. Workbook creation is isolated in `src/exporting/swatch_workbook.py`, which writes:
+- row 1: manufacturer label and value
+- row 2: category label and value
+- row 4: `ID` and `Image` column headers
+- row 5 onward: extracted material IDs with embedded swatch images
+
+Invalid image bytes are skipped gracefully while preserving the material ID row.
+
 ### Duplicate detection
 
 Before the preview panel is shown, `NeonClient.material_ids_in_db()` queries the `image_assets` table using `alt_text` as the material ID key. Matching rows are flagged as `is_duplicate = True` and highlighted yellow in the preview. The Worker upserts regardless — the flag is informational only.
@@ -153,3 +170,4 @@ Compression in `image_processing.py` mirrors the client-side TypeScript (`compre
 | requests | HTTP POST to Cloudflare Worker API |
 | psycopg2-binary | Read-only queries to Neon PostgreSQL |
 | python-dotenv | Loads `.env` for credentials |
+| openpyxl | Writes Excel swatch export workbooks |

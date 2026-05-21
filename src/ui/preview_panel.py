@@ -1,16 +1,18 @@
 from __future__ import annotations
 
 import io
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from PIL import Image as PILImage
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor, QIcon, QImage, QPixmap
 from PyQt6.QtWidgets import (
     QAbstractItemView,
-    QHBoxLayout,
+    QFileDialog,
     QFrame,
+    QHBoxLayout,
     QHeaderView,
+    QInputDialog,
     QLabel,
     QPushButton,
     QTableWidget,
@@ -78,7 +80,9 @@ class PreviewPanel(QWidget):
 
         self._table = QTableWidget(0, 3)
         self._table.setHorizontalHeaderLabels(["Swatch", "Material ID", "Status"])
-        self._table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        horizontal_header = self._table.horizontalHeader()
+        if horizontal_header is not None:
+            horizontal_header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         self._table.setColumnWidth(0, 92)
         self._table.setColumnWidth(2, 96)
         self._table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
@@ -89,7 +93,9 @@ class PreviewPanel(QWidget):
         self._table.setFrameShape(QFrame.Shape.NoFrame)
         self._table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self._table.setCornerButtonEnabled(False)
-        self._table.verticalHeader().setVisible(False)
+        vertical_header = self._table.verticalHeader()
+        if vertical_header is not None:
+            vertical_header.setVisible(False)
         table_frame = QFrame()
         table_frame.setObjectName("previewTableFrame")
         table_layout = QVBoxLayout(table_frame)
@@ -100,6 +106,10 @@ class PreviewPanel(QWidget):
 
         btn_row = QHBoxLayout()
         btn_row.setContentsMargins(0, 2, 0, 0)
+        self._export_btn = QPushButton(QIcon(theme.icon_path("save.svg")), "  Export Excel")
+        self._export_btn.setToolTip("Export selected rows to an Excel workbook.")
+        self._export_btn.clicked.connect(self._on_export_excel)
+        btn_row.addWidget(self._export_btn)
         self._upload_btn = QPushButton(QIcon(theme.icon_path("upload.svg")), "  Upload Selected")
         self._upload_btn.setProperty("primary", True)
         self._upload_btn.setToolTip("Upload selected rows; deselect rows you do not want to send.")
@@ -166,15 +176,68 @@ class PreviewPanel(QWidget):
         )
 
     # ------------------------------------------------------------------
+    # Excel export
+    # ------------------------------------------------------------------
+
+    def _on_export_excel(self) -> None:
+        selected_rows = self._selected_rows()
+        pairs = [self._pairs[row] for row in selected_rows if row < len(self._pairs)]
+        if not pairs:
+            self._show_toast("Select at least one row to export.", success=False)
+            return
+
+        manufacturer, ok = QInputDialog.getText(
+            self,
+            "Export Swatches",
+            "Manufacturer:",
+        )
+        if not ok:
+            return
+
+        category, ok = QInputDialog.getText(
+            self,
+            "Export Swatches",
+            "Category:",
+        )
+        if not ok:
+            return
+
+        path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Export Swatches to Excel",
+            "",
+            "Excel Workbook (*.xlsx)",
+        )
+        if not path:
+            return
+        if not path.lower().endswith(".xlsx"):
+            path = f"{path}.xlsx"
+
+        from src.exporting import export_swatch_workbook
+        try:
+            export_swatch_workbook(
+                path,
+                pairs,
+                manufacturer=manufacturer.strip(),
+                category=category.strip(),
+            )
+        except Exception as exc:  # noqa: BLE001 - user-facing export failure
+            detail = str(exc)[:100]
+            self._show_toast(f"Excel export failed: {detail}", success=False)
+            return
+
+        self._summary.setText(f"Exported {len(pairs)} rows to Excel.")
+        self._show_toast(f"Exported {len(pairs)} rows to Excel.", success=True)
+
+    # ------------------------------------------------------------------
     # Upload
     # ------------------------------------------------------------------
 
     def _on_upload(self) -> None:
-        selected_rows = sorted({idx.row() for idx in self._table.selectedIndexes()})
+        selected_rows = self._selected_rows()
         to_upload = [(r, self._pairs[r]) for r in selected_rows if r < len(self._pairs)]
         if not to_upload:
-            from src.ui.toast import Toast
-            Toast.show_in(self.window(), "Select at least one row to upload.", success=False)
+            self._show_toast("Select at least one row to upload.", success=False)
             return
 
         from src.extraction.image_processing import compress_image
@@ -214,12 +277,11 @@ class PreviewPanel(QWidget):
             )
         self._summary.setText(msg)
 
-        from src.ui.toast import Toast
         if failed == 0:
-            Toast.show_in(self.window(), msg, success=True)
+            self._show_toast(msg, success=True)
         else:
             detail = last_error[:80] + "…" if len(last_error) > 80 else last_error
-            Toast.show_in(self.window(), f"{failed} failed: {detail}", success=False)
+            self._show_toast(f"{failed} failed: {detail}", success=False)
 
     def _set_row_status(self, row: int, text: str, color: str) -> None:
         item = self._table.item(row, 2)
@@ -229,4 +291,12 @@ class PreviewPanel(QWidget):
             self._table.setItem(row, 2, item)
         item.setText(text)
         item.setForeground(QColor(color))
+
+    def _selected_rows(self) -> list[int]:
+        return sorted({idx.row() for idx in self._table.selectedIndexes()})
+
+    def _show_toast(self, message: str, *, success: bool) -> None:
+        from src.ui.toast import Toast
+
+        Toast.show_in(cast(QWidget, self.window()), message, success=success)
 
