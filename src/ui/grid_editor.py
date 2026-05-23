@@ -60,9 +60,9 @@ from src.extraction.grid import (
     Grid,
     GridSegment,
     OmitRegion,
-    cells_form_rectangle,
 )
 from src.ui import theme
+from src.ui.grid_editor_grouping import apply_group_click
 from src.ui.grid_editor_overlay import _handle_rects_display, _OverlayWidget, _page_rect_display
 from src.ui.pdf_viewer import PDFViewer
 
@@ -1068,31 +1068,17 @@ class GridEditor(QWidget):
         cell = self._cell_at_orig(ox, oy)
         if cell is None:
             return
-        if not self._fields:
-            self._set_hint("Define fields before creating groups.")
-            return
-        if cell in self._pending_group_cells:
-            self._set_hint("That cell is already selected for the pending group.")
-            return
-
-        candidate = [*self._pending_group_cells, cell]
-        field_def = self._field_for_click_index(len(candidate) - 1)
-        if field_def is None:
-            self._pending_group_cells = []
-            return
-        current_cells = self._pending_cells_for_field(candidate, field_def)
-        if len(current_cells) == field_def.click_count and not cells_form_rectangle(current_cells):
-            self._set_hint("Field cells must form one adjacent rectangle.")
-            return
-
-        self._pending_group_cells = candidate
-        if len(self._pending_group_cells) < self._recipe_click_count():
-            self._set_hint(f"Group selection {len(self._pending_group_cells)}/{self._recipe_click_count()}.")
-        else:
-            group = CellGroup(field_cells=self._field_cells_from_pending())
-            self._groups.append(group)
-            self._pending_group_cells = []
-            self._set_hint("Group created. Continue grouping cells or right-click a group to remove it.")
+        decision = apply_group_click(
+            fields=self._fields,
+            pending_cells=self._pending_group_cells,
+            clicked_cell=cell,
+        )
+        self._pending_group_cells = decision.pending_cells
+        if decision.created_group is not None:
+            self._groups.append(decision.created_group)
+        if decision.hint is not None:
+            self._set_hint(decision.hint)
+        if decision.record_segment_change:
             self._record_segment_change()
         self._overlay.update()
 
@@ -1126,40 +1112,6 @@ class GridEditor(QWidget):
         self._pending_group_cells = []
         self._record_segment_change()
         self._overlay.update()
-
-    def _recipe_click_count(self) -> int:
-        return sum(field_def.click_count for field_def in self._fields)
-
-    def _field_for_click_index(self, click_index: int) -> FieldDefinition | None:
-        start = 0
-        for field_def in self._fields:
-            end = start + field_def.click_count
-            if start <= click_index < end:
-                return field_def
-            start = end
-        return None
-
-    def _pending_cells_for_field(
-        self,
-        pending: list[tuple[int, int]],
-        field_def: FieldDefinition,
-    ) -> list[tuple[int, int]]:
-        start = 0
-        for candidate in self._fields:
-            end = start + candidate.click_count
-            if candidate.name == field_def.name:
-                return pending[start:end]
-            start = end
-        return []
-
-    def _field_cells_from_pending(self) -> dict[str, list[tuple[int, int]]]:
-        result: dict[str, list[tuple[int, int]]] = {}
-        start = 0
-        for field_def in self._fields:
-            end = start + field_def.click_count
-            result[field_def.name] = self._pending_group_cells[start:end]
-            start = end
-        return result
 
     def _clear_groups_for_grid_change(self) -> None:
         self._groups.clear()

@@ -19,6 +19,7 @@ pdf-finish-extractor/
     │   ├── pdf_viewer.py     Renders a PDF page to QPixmap via PyMuPDF.
     │   ├── grid_editor.py    GridEditor state, controls, and interaction handlers.
     │   ├── grid_editor_overlay.py  Overlay rendering + pointer event forwarding seam for GridEditor.
+    │   ├── grid_editor_grouping.py  Grouping recipe helpers + click-decision logic.
     │   ├── preview_panel.py  Shows extracted groups; triggers Excel export.
     │   └── profile_manager.py  Saves/loads Grid profiles as JSON files.
     ├── extraction/           Pure extraction logic; no UI, export, or network I/O.
