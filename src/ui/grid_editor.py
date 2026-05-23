@@ -514,6 +514,12 @@ class GridEditor(QWidget):
         self._hint.setObjectName("toolbarHint")
         bar.addWidget(self._hint, stretch=1)
 
+        omit_all_btn = QPushButton("Omit All")
+        omit_all_btn.setProperty("ghost", True)
+        omit_all_btn.setToolTip("Mark every page as omitted so none are extracted.")
+        omit_all_btn.clicked.connect(self._omit_all_pages)
+        bar.addWidget(omit_all_btn)
+
         clear_btn = QPushButton("Clear Grid")
         clear_btn.setProperty("ghost", True)
         clear_btn.setToolTip("Remove all lines and pairings from the current PDF.")
@@ -666,6 +672,15 @@ class GridEditor(QWidget):
             self._set_hint("Current page will be skipped during extraction.")
         self._update_page_controls()
         self._overlay.update()
+
+    def _omit_all_pages(self) -> None:
+        page_count = self._viewer.page_count
+        if page_count == 0:
+            return
+        self._omitted_pages = set(range(page_count))
+        self._update_page_controls()
+        self._overlay.update()
+        self._set_hint(f"All {page_count} pages marked as omitted.")
 
     # ------------------------------------------------------------------
     # Coordinate helpers
