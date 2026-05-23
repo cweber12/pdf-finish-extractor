@@ -65,6 +65,7 @@ from src.ui import theme
 from src.ui.grid_editor_grouping import apply_group_click
 from src.ui.grid_editor_line_edit import apply_line_placement, bounded_line_value, can_place_line
 from src.ui.grid_editor_modes import mode_hint, mode_uses_crosshair, resolved_mode
+from src.ui.grid_editor_omit import decide_omit_move, decide_omit_release
 from src.ui.grid_editor_overlay import _handle_rects_display, _OverlayWidget, _page_rect_display
 from src.ui.grid_editor_right_click import decide_right_click
 from src.ui.pdf_viewer import PDFViewer
@@ -731,15 +732,6 @@ class GridEditor(QWidget):
             max(0, min(orig.height(), oy)),
         )
 
-    def _normalized_omit_rect(self, start: tuple[int, int], end: tuple[int, int]) -> tuple[int, int, int, int] | None:
-        x0, y0 = start
-        x1, y1 = end
-        left, right = sorted((x0, x1))
-        top, bottom = sorted((y0, y1))
-        if right - left < 8 or bottom - top < 8:
-            return None
-        return left, top, right, bottom
-
     def _line_hit(self, dx: int, dy: int) -> tuple[int | None, int | None]:
         """Return (h_index, None) or (None, v_index) if near a line/handle."""
         h_d, v_d = self._grid_display_boundaries()
@@ -906,8 +898,14 @@ class GridEditor(QWidget):
             return
 
         if self._omit_start is not None and self._mode == "omit":
-            end = self._clamped_orig_point(ox, oy)
-            self._omit_preview = (*self._omit_start, *end)
+            decision = decide_omit_move(
+                mode=self._mode,
+                omit_start=self._omit_start,
+                clamped_point=self._clamped_orig_point(ox, oy),
+                omit_region_index_at_point=None,
+            )
+            if decision.preview_rect is not None:
+                self._omit_preview = decision.preview_rect
             self._overlay.update()
             return
 
@@ -926,10 +924,16 @@ class GridEditor(QWidget):
         self._update_cursor(dx, dy)
 
         if self._mode == "omit":
-            region_idx = self._omit_region_at_orig(ox, oy)
-            if region_idx is not None:
-                del self._omit_regions[region_idx]
-                self._set_hint("Ignored section removed.")
+            decision = decide_omit_move(
+                mode=self._mode,
+                omit_start=None,
+                clamped_point=self._clamped_orig_point(ox, oy),
+                omit_region_index_at_point=self._omit_region_at_orig(ox, oy),
+            )
+            if decision.remove_region_index is not None:
+                del self._omit_regions[decision.remove_region_index]
+                if decision.hint is not None:
+                    self._set_hint(decision.hint)
                 self._overlay.update()
             return
 
@@ -949,18 +953,26 @@ class GridEditor(QWidget):
             return
 
         if self._omit_start is not None and self._mode == "omit":
-            end = self._clamped_orig_point(*self._d2o(
-                event.position().toPoint().x(),
-                event.position().toPoint().y(),
-            ))
-            rect = self._normalized_omit_rect(self._omit_start, end)
-            if rect is not None:
-                self._omit_regions.append(OmitRegion(page_index=self.current_page_index(), rect=rect))
-                self._set_hint("Ignored section added for this page. Right-click it in Ignore Area mode to remove it.")
-            else:
-                self._set_hint("Ignored section was too small to save.")
-            self._omit_start = None
-            self._omit_preview = None
+            decision = decide_omit_release(
+                mode=self._mode,
+                omit_start=self._omit_start,
+                clamped_release_point=self._clamped_orig_point(
+                    *self._d2o(
+                        event.position().toPoint().x(),
+                        event.position().toPoint().y(),
+                    )
+                ),
+            )
+            if decision.normalized_rect is not None:
+                self._omit_regions.append(
+                    OmitRegion(page_index=self.current_page_index(), rect=decision.normalized_rect)
+                )
+            if decision.hint is not None:
+                self._set_hint(decision.hint)
+            if decision.clear_start:
+                self._omit_start = None
+            if decision.clear_preview:
+                self._omit_preview = None
             self._overlay.update()
             return
 
