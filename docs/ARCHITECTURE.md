@@ -15,6 +15,7 @@ pdf-finish-extractor/
 └── src/
     ├── ui/                   PyQt6 UI layer.
     │   ├── main_window.py    Top-level window, toolbar, wires UI components together.
+    │   ├── extraction_session.py  QThread extraction lifecycle seam used by MainWindow.
     │   ├── pdf_viewer.py     Renders a PDF page to QPixmap via PyMuPDF.
     │   ├── grid_editor.py    Overlay for drawing lines, defining fields, grouping cells, omitting pages/regions.
     │   ├── preview_panel.py  Shows extracted groups; triggers Excel export.
@@ -54,6 +55,9 @@ ProfileManager (profiles/*.json)
       │  Grid (field recipe, groups, omitted_pages, omit_regions)
       ▼
 MainWindow spawns _ExtractionWorker on QThread
+      │
+      ▼
+ExtractionSession.start() creates QThread + _ExtractionWorker
       │
       ▼
 _ExtractionWorker.run() (off main thread)

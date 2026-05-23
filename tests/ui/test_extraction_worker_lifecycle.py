@@ -7,7 +7,7 @@ from pytest import MonkeyPatch
 
 from src.extraction.extractor import ExtractionProgress
 from src.extraction.grid import Grid, GridSegment
-from src.ui.main_window import _ExtractionWorker
+from src.ui.extraction_session import _ExtractionWorker
 
 
 def test_worker_emits_progress_and_finished(monkeypatch: MonkeyPatch) -> None:
@@ -34,7 +34,7 @@ def test_worker_emits_progress_and_finished(monkeypatch: MonkeyPatch) -> None:
             progress_callback(ExtractionProgress(page_index=1, page_count=2, groups_extracted=4))
             return ["g1", "g2", "g3", "g4"]
 
-    monkeypatch.setattr("src.ui.main_window.Extractor", FakeExtractor)
+    monkeypatch.setattr("src.ui.extraction_session.Extractor", FakeExtractor)
 
     worker = _ExtractionWorker("dummy.pdf", profile=Grid(), segments=[])
     progress_events: list[tuple[int, int, int]] = []
@@ -72,7 +72,7 @@ def test_worker_cancel_before_run_marks_finished_cancelled(monkeypatch: MonkeyPa
             assert cancel_check() is True
             return []
 
-    monkeypatch.setattr("src.ui.main_window.Extractor", FakeExtractor)
+    monkeypatch.setattr("src.ui.extraction_session.Extractor", FakeExtractor)
 
     worker = _ExtractionWorker("dummy.pdf", profile=Grid(), segments=[])
     finished_events: list[tuple[list[object], bool]] = []
@@ -103,7 +103,7 @@ def test_worker_emits_failed_on_extractor_error(monkeypatch: MonkeyPatch) -> Non
         ) -> list[Any]:
             raise RuntimeError("boom")
 
-    monkeypatch.setattr("src.ui.main_window.Extractor", FakeExtractor)
+    monkeypatch.setattr("src.ui.extraction_session.Extractor", FakeExtractor)
 
     worker = _ExtractionWorker("dummy.pdf", profile=Grid(), segments=[])
     failed_events: list[str] = []

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from PyQt6.QtCore import QObject, QSize, Qt, QThread, pyqtSignal, pyqtSlot
+from PyQt6.QtCore import QSize, Qt, pyqtSignal
 from PyQt6.QtGui import QAction, QCloseEvent, QColor, QIcon
 from PyQt6.QtWidgets import (
     QFileDialog,
@@ -20,10 +20,8 @@ from PyQt6.QtWidgets import (
     QWidgetAction,
 )
 
-from src.common.errors import to_user_message
-from src.extraction.extractor import ExtractionProgress, Extractor
-from src.extraction.grid import Grid, GridSegment
 from src.ui import theme
+from src.ui.extraction_session import ExtractionSession
 from src.ui.grid_editor import GlowIconButton, GridEditor
 from src.ui.preview_panel import PreviewPanel
 from src.ui.profile_manager import ProfileManager
@@ -69,56 +67,6 @@ class _LayoutMenuRow(QWidget):
         row.addWidget(self._delete_btn)
 
 
-class _ExtractionWorker(QObject):
-    """Runs PDF extraction off the Qt main thread.
-
-    The expensive work is intentionally isolated from the UI. Signals are used
-    to report progress and completion back to ``MainWindow`` safely.
-    """
-
-    progress = pyqtSignal(int, int, int)  # page_index, page_count, groups_extracted
-    finished = pyqtSignal(object, bool)   # list[ExtractedGroup], was_cancelled
-    failed = pyqtSignal(str)
-
-    def __init__(self, pdf_path: str, profile: Grid, segments: list[GridSegment]) -> None:
-        super().__init__()
-        self._pdf_path = pdf_path
-        self._profile = profile
-        self._segments = segments
-        self._cancel_requested = False
-
-    @pyqtSlot()
-    def run(self) -> None:
-        """Execute extraction in the worker thread."""
-        try:
-            def on_progress(progress: ExtractionProgress) -> None:
-                self.progress.emit(
-                    progress.page_index,
-                    progress.page_count,
-                    progress.groups_extracted,
-                )
-
-            extractor = Extractor(self._pdf_path, self._profile, segments=self._segments or None)
-            groups = extractor.extract_all_pages(
-                progress_callback=on_progress,
-                cancel_check=lambda: self._cancel_requested,
-            )
-            self.finished.emit(groups, self._cancel_requested)
-        except Exception as exc:  # noqa: BLE001 - user-facing extraction failure
-            self.failed.emit(
-                to_user_message(
-                    exc,
-                    fallback="Could not extract data from this PDF.",
-                    max_len=180,
-                )
-            )
-
-    @pyqtSlot()
-    def cancel(self) -> None:
-        """Request a clean stop between pages."""
-        self._cancel_requested = True
-
-
 class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
@@ -127,8 +75,11 @@ class MainWindow(QMainWindow):
 
         self._profile_manager = ProfileManager()
         self._selected_profile_name: str | None = None
-        self._extraction_thread: QThread | None = None
-        self._extraction_worker: _ExtractionWorker | None = None
+        self._extraction_session = ExtractionSession(self)
+        self._extraction_session.progress.connect(self._on_extraction_progress)
+        self._extraction_session.finished.connect(self._on_extraction_finished)
+        self._extraction_session.failed.connect(self._on_extraction_failed)
+        self._extraction_session.running_changed.connect(self._set_extraction_running)
         self._build_central()
 
     # ------------------------------------------------------------------
@@ -378,14 +329,14 @@ class MainWindow(QMainWindow):
         self._preview_panel.setVisible(False)
         self._set_status("Preparing extraction…")
         segments = self._grid_editor.current_segments()
-        self._start_extraction_worker(pdf_path, profile, segments)
+        self._extraction_session.start(pdf_path, profile, segments)
 
     def _on_cancel_extract(self) -> None:
-        if not self._is_extracting() or self._extraction_worker is None:
+        if not self._is_extracting():
             return
         self._cancel_extract_btn.setEnabled(False)
         self._set_status("Cancelling extraction after the current page…")
-        self._extraction_worker.cancel()
+        self._extraction_session.cancel()
 
     def _on_extraction_progress(self, page_index: int, page_count: int, groups_extracted: int) -> None:
         completed = page_index + 1
@@ -402,7 +353,6 @@ class MainWindow(QMainWindow):
         if extracted_groups:
             self._splitter.setSizes([900, 520])
 
-        self._set_extraction_running(False)
         if was_cancelled:
             msg = f"Extraction cancelled: {len(extracted_groups)} groups found."
             self._set_status(msg)
@@ -413,14 +363,9 @@ class MainWindow(QMainWindow):
             Toast.show_in(self.window(), msg, success=True)
 
     def _on_extraction_failed(self, error: str) -> None:
-        self._set_extraction_running(False)
         self._set_status("Extraction failed.")
         detail = error[:120] + "…" if len(error) > 120 else error
         Toast.show_in(self.window(), f"Extraction failed: {detail}", success=False)
-
-    def _on_extraction_thread_finished(self) -> None:
-        self._extraction_thread = None
-        self._extraction_worker = None
 
     def _set_status(self, text: str) -> None:
         """Update the compact status area without letting long text stretch the toolbar."""
@@ -501,31 +446,6 @@ class MainWindow(QMainWindow):
         self._set_status(f"Layout deleted: {name}")
         Toast.show_in(self.window(), f"Layout deleted: {name}", success=True)
 
-    # ------------------------------------------------------------------
-    # Extraction worker management
-    # ------------------------------------------------------------------
-
-    def _start_extraction_worker(self, pdf_path: str, profile: Grid, segments: list[GridSegment]) -> None:
-        thread = QThread(self)
-        worker = _ExtractionWorker(pdf_path, profile, segments)
-        worker.moveToThread(thread)
-
-        thread.started.connect(worker.run)
-        worker.progress.connect(self._on_extraction_progress)
-        worker.finished.connect(self._on_extraction_finished)
-        worker.failed.connect(self._on_extraction_failed)
-        worker.finished.connect(thread.quit)
-        worker.failed.connect(thread.quit)
-        worker.finished.connect(worker.deleteLater)
-        worker.failed.connect(worker.deleteLater)
-        thread.finished.connect(thread.deleteLater)
-        thread.finished.connect(self._on_extraction_thread_finished)
-
-        self._extraction_thread = thread
-        self._extraction_worker = worker
-        self._set_extraction_running(True)
-        thread.start()
-
     def _set_extraction_running(self, running: bool) -> None:
         self._open_btn.setEnabled(not running)
         self._profile_button.setEnabled(not running)
@@ -542,18 +462,15 @@ class MainWindow(QMainWindow):
             self._progress_bar.setVisible(False)
 
     def _is_extracting(self) -> bool:
-        return self._extraction_thread is not None and self._extraction_thread.isRunning()
+        return self._extraction_session.is_running()
 
     # ------------------------------------------------------------------
     # Window lifecycle
     # ------------------------------------------------------------------
 
     def closeEvent(self, event: QCloseEvent) -> None:  # noqa: N802 - Qt override
-        if self._is_extracting() and self._extraction_worker is not None:
-            self._extraction_worker.cancel()
-            if self._extraction_thread is not None:
-                self._extraction_thread.quit()
-                self._extraction_thread.wait(1500)
+        if self._is_extracting():
+            self._extraction_session.shutdown(1500)
         super().closeEvent(event)
 
 
