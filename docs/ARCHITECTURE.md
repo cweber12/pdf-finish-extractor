@@ -22,6 +22,7 @@ pdf-finish-extractor/
     │   ├── grid_editor_grouping.py  Grouping recipe helpers + click-decision logic.
     │   ├── grid_editor_modes.py  Mode-resolution and cursor/hint behavior helpers.
     │   ├── grid_editor_right_click.py  Right-click decision helper for omit/group/line removal flows.
+    │   ├── grid_editor_line_edit.py  Drag/placement line constraints and placement decision helpers.
     │   ├── preview_panel.py  Shows extracted groups; triggers Excel export.
     │   └── profile_manager.py  Saves/loads Grid profiles as JSON files.
     ├── extraction/           Pure extraction logic; no UI, export, or network I/O.

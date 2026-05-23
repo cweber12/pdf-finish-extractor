@@ -63,6 +63,7 @@ from src.extraction.grid import (
 )
 from src.ui import theme
 from src.ui.grid_editor_grouping import apply_group_click
+from src.ui.grid_editor_line_edit import apply_line_placement, bounded_line_value, can_place_line
 from src.ui.grid_editor_modes import mode_hint, mode_uses_crosshair, resolved_mode
 from src.ui.grid_editor_overlay import _handle_rects_display, _OverlayWidget, _page_rect_display
 from src.ui.grid_editor_right_click import decide_right_click
@@ -772,30 +773,29 @@ class GridEditor(QWidget):
     def _bounded_line_value(self, dtype: str, idx: int, value: int) -> int:
         """Clamp a dragged line so it cannot cross adjacent boundaries."""
         orig = self._viewer.pixmap
-        if orig is None:
-            return max(0, value)
-
         lines = self._h_lines if dtype == "h" else self._v_lines
-        max_value = orig.height() if dtype == "h" else orig.width()
-        if idx < 0 or idx >= len(lines):
-            return max(0, min(max_value, value))
-
-        lower = 0 if idx == 0 else lines[idx - 1] + _MIN_LINE_GAP_ORIG
-        upper = max_value if idx == len(lines) - 1 else lines[idx + 1] - _MIN_LINE_GAP_ORIG
-        if lower > upper:
-            return lines[idx]
-        return max(lower, min(upper, value))
+        max_value = None if orig is None else (orig.height() if dtype == "h" else orig.width())
+        return bounded_line_value(
+            line_kind=dtype,
+            lines=lines,
+            max_value=max_value,
+            index=idx,
+            value=value,
+            min_gap=_MIN_LINE_GAP_ORIG,
+        )
 
     def _can_place_line(self, dtype: str, value: int) -> bool:
         """Prevent duplicate/stacked lines that create ambiguous drag handles."""
         orig = self._viewer.pixmap
-        if orig is None:
-            return False
-        max_value = orig.height() if dtype == "h" else orig.width()
-        if value <= 0 or value >= max_value:
-            return False
         lines = self._h_lines if dtype == "h" else self._v_lines
-        return all(abs(existing - value) >= _MIN_LINE_GAP_ORIG for existing in lines)
+        max_value = None if orig is None else (orig.height() if dtype == "h" else orig.width())
+        return can_place_line(
+            line_kind=dtype,
+            lines=lines,
+            max_value=max_value,
+            value=value,
+            min_gap=_MIN_LINE_GAP_ORIG,
+        )
 
     # ------------------------------------------------------------------
     # Mode / cursor management
@@ -974,23 +974,35 @@ class GridEditor(QWidget):
             return
 
         if self._placing:
-            if self._preview is not None:
-                if self._mode == "add_h":
-                    if self._can_place_line("h", self._preview):
-                        self._h_lines.append(self._preview)
-                        self._h_lines.sort()
-                        self._clear_groups_for_grid_change()
-                        self._set_hint("Row boundary added. Drag its handle to adjust.")
-                    else:
-                        self._set_hint("Row boundary is too close to another line or page edge.")
-                elif self._mode == "add_v":
-                    if self._can_place_line("v", self._preview):
-                        self._v_lines.append(self._preview)
-                        self._v_lines.sort()
-                        self._clear_groups_for_grid_change()
-                        self._set_hint("Column boundary added. Drag its handle to adjust.")
-                    else:
-                        self._set_hint("Column boundary is too close to another line or page edge.")
+            orig = self._viewer.pixmap
+            max_height = None if orig is None else orig.height()
+            max_width = None if orig is None else orig.width()
+            if self._mode == "add_h":
+                decision = apply_line_placement(
+                    line_kind="h",
+                    lines=self._h_lines,
+                    max_value=max_height,
+                    preview_value=self._preview,
+                    min_gap=_MIN_LINE_GAP_ORIG,
+                )
+                self._h_lines = decision.lines
+                if decision.clear_groups_for_grid_change:
+                    self._clear_groups_for_grid_change()
+                if decision.hint:
+                    self._set_hint(decision.hint)
+            elif self._mode == "add_v":
+                decision = apply_line_placement(
+                    line_kind="v",
+                    lines=self._v_lines,
+                    max_value=max_width,
+                    preview_value=self._preview,
+                    min_gap=_MIN_LINE_GAP_ORIG,
+                )
+                self._v_lines = decision.lines
+                if decision.clear_groups_for_grid_change:
+                    self._clear_groups_for_grid_change()
+                if decision.hint:
+                    self._set_hint(decision.hint)
             self._placing = False
             self._preview = None
             self._overlay.update()
