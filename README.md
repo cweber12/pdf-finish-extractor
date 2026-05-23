@@ -11,8 +11,10 @@ A desktop tool for importing material finish catalogs from PDF files into the FF
 - **Interactive pairing** — enter *Pair Cells* mode, click an image cell then a text cell to form pairs; supports complex layouts where text positions vary per row
 - **Named profiles** — save a grid layout under a name (e.g. "Supplier A – 2 column"); reload it instantly for future PDFs from the same supplier
 - **Batch extraction** — the page-1 grid is applied automatically to every subsequent page; extraction runs asynchronously to keep the UI responsive
+- **Page omission** — skip full pages or page-specific rectangular regions that contain diagrams, renderings, or other non-extractable content
 - **Progress & cancellation** — monitor extraction progress and cancel long-running jobs
 - **Preview panel** — review all extracted (thumbnail, ID) pairs before committing; duplicates are highlighted
+- **Excel export** — save extracted swatches to an Excel workbook with manufacturer/category metadata
 - **Intelligent upload** — create materials if needed, upload swatch images via the Cloudflare Worker API to R2 + Neon
 
 ---
@@ -26,6 +28,7 @@ A desktop tool for importing material finish catalogs from PDF files into the FF
 | Image compression | Pillow |
 | Network | requests (HTTP) |
 | Database | psycopg2 → Neon PostgreSQL (read-only) |
+| Excel | openpyxl |
 | Config | python-dotenv |
 
 ---
@@ -48,15 +51,18 @@ pdf-finish-extractor/
     ├── ui/
     │   ├── main_window.py      # Top-level window, toolbar, extraction worker
     │   ├── pdf_viewer.py       # PDF canvas widget (PyMuPDF → QPixmap)
-    │   ├── grid_editor.py      # Line drawing & explicit cell pairing
-    │   ├── preview_panel.py    # Extraction review (thumbnails + IDs) & upload
+    │   ├── grid_editor.py      # Line drawing, cell pairing, page nav, omit controls
+    │   ├── preview_panel.py    # Extraction review (thumbnails + IDs), export, upload
     │   ├── profile_manager.py  # Save / load / select named profiles
     │   ├── theme.py            # Global QSS stylesheet & design tokens
     │   └── toast.py            # Auto-dismiss overlay notifications
     ├── extraction/
-    │   ├── grid.py             # Grid & CellPair data models
-    │   ├── extractor.py        # PyMuPDF extraction with progress/cancel
+    │   ├── grid.py             # Grid, CellPair, OmitRegion data models
+    │   ├── extractor.py        # PyMuPDF extraction with progress/cancel/omit logic
     │   └── image_processing.py # WebP compression via Pillow
+    ├── exporting/
+    │   ├── swatch_workbook.py  # Excel workbook generation with metadata
+    │   └── __init__.py
     └── upload/
         ├── worker_client.py    # Cloudflare Worker API (materials + images)
         └── neon_client.py      # Neon read-only queries (duplicate detection)
@@ -123,9 +129,11 @@ Use **File → Open** to load a catalog PDF. The first page renders in the viewe
 
 ### Step 2 — Define the grid
 
-1. Click **+ H Line** or **+ V Line** and drag lines across the page to divide it into cells.
-2. Click **Pair Cells** mode, then click an image cell (highlighted in orange) and the text cell containing its material ID to form a pair.
-3. Repeat for each image in the grid. Right-click a highlighted cell to remove its pair.
+1. Use **◀ Previous** / **Next ▶** to navigate pages if needed. Mark pages to skip extraction with **Omit Page** toggle.
+2. Click **+ H Line** or **+ V Line** and drag lines across the page to divide it into cells.
+3. Click **Pair Cells** mode, then click an image cell (highlighted in orange) and the text cell containing its material ID to form a pair.
+4. (Optional) Use **Draw Ignore Area** to mark page-specific regions (diagrams, renderings, blank sections) that should not be extracted.
+5. Repeat pairing for each image in the grid. Right-click a highlighted cell to remove its pair.
 
 ### Step 3 — Save a profile (optional but recommended)
 
@@ -143,8 +151,15 @@ In the preview:
 - Rows with a material ID already in the database are **highlighted amber** — they will be updated.
 - Deselect any row you want to skip.
 
-### Step 5 — Upload
+### Step 5 — Export or Upload
 
+**Option A — Export to Excel:**
+Click **Export Excel**. Provide a manufacturer name and category. The app writes an Excel workbook with:
+- Manufacturer and category metadata
+- Column headers: ID, Image
+- One row per extracted swatch with material ID and embedded thumbnail
+
+**Option B — Upload to Database:**
 Click **Upload Selected**. The app:
 
 1. For each row, ensures the material exists in the database (creates if new)
@@ -168,12 +183,18 @@ Profiles are plain JSON stored in `profiles/`. You can edit them directly.
   "pairs": [
     {"image_cell": [0, 0], "text_cell": [0, 1]},
     {"image_cell": [0, 2], "text_cell": [0, 3]}
+  ],
+  "omitted_pages": [2, 5],
+  "omit_regions": [
+    {"page_index": 1, "rect": [400, 600, 800, 900]}
   ]
 }
 ```
 
 - `horizontal_lines` and `vertical_lines` are y/x coordinates in **150-DPI rendered pixel space** (portable across machines using the same DPI constant)
 - `pairs` lists explicit image→text cell mappings as `[row, col]` tuples (supports complex layouts where text positions vary per row)
+- `omitted_pages` (optional) lists zero-based page indices to skip entirely (e.g. cover pages, blank pages)
+- `omit_regions` (optional) lists page-specific rectangular areas to ignore, as `{page_index, rect: [x0, y0, x1, y1]}` (useful for diagrams or empty sections)
 
 ---
 

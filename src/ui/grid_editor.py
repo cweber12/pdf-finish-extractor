@@ -18,7 +18,17 @@ coordinate system used by the Extractor.
 from __future__ import annotations
 
 from PyQt6.QtCore import QPoint, QPointF, QRect, QRectF, Qt, pyqtSignal
-from PyQt6.QtGui import QBrush, QColor, QFont, QIcon, QMouseEvent, QPainter, QPen, QPixmap
+from PyQt6.QtGui import (
+    QBrush,
+    QColor,
+    QFont,
+    QIcon,
+    QMouseEvent,
+    QPainter,
+    QPen,
+    QPixmap,
+    QWheelEvent,
+)
 from PyQt6.QtWidgets import (
     QHBoxLayout,
     QLabel,
@@ -314,6 +324,9 @@ class _OverlayWidget(QWidget):
         self._e._hovered_line = None
         self.update()
 
+    def wheelEvent(self, event) -> None:  # noqa: ANN001
+        self._e._on_wheel(event)
+
 
 # ------------------------------------------------------------------
 # Display-space helpers
@@ -424,6 +437,7 @@ class GridEditor(QWidget):
         self._hovered_cell: tuple[int, int] | None = None
         self._omit_start: tuple[int, int] | None = None
         self._omit_preview: tuple[int, int, int, int] | None = None
+        self._pan_last: QPoint | None = None
 
         self.pdf_path: str | None = None
 
@@ -484,6 +498,10 @@ class GridEditor(QWidget):
         self._next_page_btn.setToolTip("Next page")
         self._next_page_btn.clicked.connect(lambda: self._go_to_page(self.current_page_index() + 1))
         bar.addWidget(self._next_page_btn)
+
+        self._zoom_label = QLabel("100%")
+        self._zoom_label.setObjectName("zoomStatus")
+        bar.addWidget(self._zoom_label)
 
         self._omit_page_btn = QPushButton("Omit Page")
         self._omit_page_btn.setCheckable(True)
@@ -571,6 +589,7 @@ class GridEditor(QWidget):
     def load_pdf(self, path: str) -> None:
         self.pdf_path = path
         self._viewer.open(path)
+        self._zoom_label.setText("100%")
         self._stack.setCurrentIndex(1)
         self._set_hint("Use Rows or Columns to place boundaries on any page. The grid applies to all pages.")
         self._update_page_controls()
@@ -623,13 +642,14 @@ class GridEditor(QWidget):
         if index < 0 or index >= self._viewer.page_count:
             return
         self._viewer.load_page(index)
+        self._zoom_label.setText("100%")
         self._pending_image = None
         self._hovered_cell = None
         self._hovered_line = None
         self._omit_start = None
         self._omit_preview = None
         self._update_page_controls()
-        self._set_hint("Viewing page %d. Grid edits here still apply to every page." % (index + 1))
+        self._set_hint(f"Viewing page {index + 1}. Grid edits here still apply to every page.")
         self._reposition_overlay()
 
     def _toggle_current_page_omitted(self) -> None:
@@ -823,6 +843,11 @@ class GridEditor(QWidget):
             self._on_right_click(dx, dy)
             return
 
+        if event.button() == Qt.MouseButton.MiddleButton:
+            self._pan_last = pos
+            self._overlay.setCursor(Qt.CursorShape.ClosedHandCursor)
+            return
+
         hit_h, hit_v = self._line_hit(dx, dy)
         if hit_h is not None:
             self._dragging = ("h", hit_h)
@@ -856,6 +881,15 @@ class GridEditor(QWidget):
     def _on_move(self, event: QMouseEvent) -> None:
         pos = event.position().toPoint()
         dx, dy = pos.x(), pos.y()
+
+        if self._pan_last is not None:
+            ddx = dx - self._pan_last.x()
+            ddy = dy - self._pan_last.y()
+            self._viewer.pan_by(ddx, ddy)
+            self._pan_last = pos
+            self._overlay.update()
+            return
+
         ox, oy = self._d2o(dx, dy)
 
         if self._dragging:
@@ -902,6 +936,11 @@ class GridEditor(QWidget):
         self._overlay.update()
 
     def _on_release(self, event: QMouseEvent) -> None:
+        if event.button() == Qt.MouseButton.MiddleButton:
+            self._pan_last = None
+            self._update_cursor(None, None)
+            return
+
         if event.button() != Qt.MouseButton.LeftButton:
             return
 
@@ -948,6 +987,27 @@ class GridEditor(QWidget):
             self._placing = False
             self._preview = None
             self._overlay.update()
+
+    def _on_wheel(self, event: QWheelEvent) -> None:
+        """Zoom on mouse wheel. Cancels any in-progress placement first."""
+        if self._placing or self._omit_start is not None:
+            self._placing = False
+            self._preview = None
+            self._omit_start = None
+            self._omit_preview = None
+
+        delta = event.angleDelta().y()
+        if delta == 0:
+            event.accept()
+            return
+
+        factor = 1.15 if delta > 0 else 1.0 / 1.15
+        new_zoom = self._viewer.zoom_level * factor
+        pos = event.position().toPoint()
+        self._viewer.zoom_at(pos.x(), pos.y(), new_zoom)
+        self._zoom_label.setText(f"{round(self._viewer.zoom_level * 100)}%")
+        self._overlay.update()
+        event.accept()
 
     def _on_right_click(self, dx: int, dy: int) -> None:
         ox, oy = self._d2o(dx, dy)

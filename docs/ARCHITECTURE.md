@@ -16,11 +16,11 @@ pdf-finish-extractor/
     ├── ui/                   PyQt6 UI layer — no extraction or upload logic.
     │   ├── main_window.py    Top-level window, toolbar, wires UI components together.
     │   ├── pdf_viewer.py     Renders a PDF page to QPixmap via PyMuPDF.
-    │   ├── grid_editor.py    Overlay for drawing lines and tagging cells.
-    │   ├── preview_panel.py  Shows extracted pairs; triggers upload.
+    │   ├── grid_editor.py    Overlay for drawing lines, pairing cells, omitting pages/regions.
+    │   ├── preview_panel.py  Shows extracted pairs; triggers upload or export.
     │   └── profile_manager.py  Saves/loads Grid profiles as JSON files.
     ├── extraction/           Pure extraction logic — no UI, no network.
-    │   ├── grid.py           Grid data model (lines, explicit CellPair list).
+    │   ├── grid.py           Grid data model (lines, pairs, omit rules).
     │   ├── extractor.py      Applies a Grid to a PDF; returns ExtractedPair list.
     │   └── image_processing.py  Compresses images to WebP (matches client rules).
     ├── exporting/            File export logic — no UI, extraction, or network I/O.
@@ -43,19 +43,21 @@ User opens PDF
 PDFViewer (PyMuPDF → QPixmap)
       │
       ▼
-GridEditor — user draws lines on overlay, enters Pair Cells mode to link image/text cells
+GridEditor — navigate pages, draw lines, pair cells, omit pages/regions
       │  saves/loads
       ▼
 ProfileManager (profiles/*.json)
-      │  Grid
+      │  Grid (includes omitted_pages, omit_regions)
       ▼
 MainWindow spawns _ExtractionWorker on QThread
       │
       ▼
 _ExtractionWorker.run() (off main thread)
   ├─ Extractor.extract_all_pages()
-  │  ├─ for each page:
+  │  ├─ skip pages in omitted_pages
+  │  ├─ for each active page:
   │  │  ├─ render page to image at 150 DPI
+  │  │  ├─ skip pairs intersecting omit_regions
   │  │  ├─ for each pair: clip image cell → PNG bytes, extract text from text cell
   │  │  └─ emit progress signal
   │  └─ return List[ExtractedPair]
@@ -126,6 +128,16 @@ The Cloudflare Worker backend handles the R2 upload and Neon database upsert, so
 ### Multi-page extraction
 
 The grid defined on page 1 is applied unchanged to every subsequent page. No per-page adjustment is made. If a page has fewer filled cells than the grid implies (e.g. the last page of a catalog), cells that yield empty text are silently skipped — no pair is emitted for them.
+
+### Page omission and region ignore
+
+Mixed-format catalogs (where some pages contain diagrams, renderings, or non-extractable content) are handled via two mechanisms:
+
+**Omitted pages:** `Grid.omitted_pages` lists zero-based page indices to skip entirely during extraction. This is useful for cover pages, blank pages, or indexes that don't follow the swatch layout.
+
+**Omit regions:** `Grid.omit_regions` lists page-specific rectangular areas (in 150-DPI rendered pixel space) to exclude. Each `OmitRegion` specifies a `page_index` and `rect: [x0, y0, x1, y1]`. During extraction, any pair whose image or text cell intersects an omit region on that page is silently skipped. This lets a single reusable grid handle pages with embedded diagrams, advertisements, or partial content without requiring per-page layout redefinition.
+
+Both mechanisms preserve the extracted data integrity: skipped pairs simply do not appear in the output. No markers or indicators are left behind.
 
 ### Excel swatch export
 

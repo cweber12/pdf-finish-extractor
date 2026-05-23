@@ -23,6 +23,15 @@ This project extracts images, text, and image/text pairs from PDFs. Keep the imp
 
 Extraction runs on a `QThread` worker (`_ExtractionWorker`) to keep the UI responsive. The worker emits progress/finished/failed signals. Test workers with `monkeypatch` to mock signal emits, or use a minimal test PDF if testing the full extraction pipeline. Do not block the main thread during PDF rendering or large batch operations.
 
+### Page omission and region ignore testing
+
+When testing extraction with `omitted_pages` and `omit_regions`, ensure:
+- Omitted pages are skipped without error
+- Pairs intersecting omit regions on the same page are silently dropped
+- Pairs on non-omitted pages with non-intersecting regions are extracted normally
+- Use small fixture PDFs with a few pages and regions to keep tests fast and deterministic
+- Mock the OmitRegion intersection logic or use pre-built fixture PDFs with known page/region coordinates
+
 ### Two-step material upload
 
 Upload workflow via Cloudflare Worker API:
