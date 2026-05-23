@@ -104,21 +104,40 @@ QWidget#workspace {{
 QWidget#actionBar {{
     background-color: {BG_SURFACE};
     border-bottom: 1px solid {BORDER};
-    min-height: 62px;
-    max-height: 62px;
+    min-height: 64px;
+    max-height: 64px;
 }}
 
 QWidget#actionBar QLabel {{
     background-color: transparent;
 }}
 
-QLabel#appTitle {{
-    color: {TEXT_PRIMARY};
-    font-size: {FONT_LG}px;
-    font-weight: 750;
+QWidget#brandCluster,
+QWidget#brandText {{
+    background-color: transparent;
+    border: none;
 }}
 
-QLabel#appSubtitle,
+QLabel#brandMark {{
+    background-color: transparent;
+    border: none;
+}}
+
+QLabel#appTitle {{
+    color: {TEXT_PRIMARY};
+    font-size: 16px;
+    font-weight: 800;
+    letter-spacing: 0.2px;
+}}
+
+QLabel#appSubtitle {{
+    color: {TEXT_MUTED};
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 1.4px;
+    text-transform: uppercase;
+}}
+
 QLabel#profileHelper,
 QLabel#statusText {{
     color: {TEXT_MUTED};
@@ -135,6 +154,80 @@ QWidget#profileGroup {{
 QWidget#topActionCluster {{
     background-color: transparent;
     border: none;
+}}
+
+/* Grid Layouts dropdown — square edges, flush with the bottom of the bar */
+QToolButton#layoutsDropdown {{
+    background-color: {BG_ELEVATED};
+    color: {TEXT_PRIMARY};
+    border: 1px solid {BORDER};
+    border-bottom: none;
+    border-radius: 0;
+    padding: 0 14px 0 12px;
+    min-height: 63px;
+    max-height: 63px;
+    min-width: 210px;
+    font-size: {FONT_MD}px;
+    font-weight: 650;
+    letter-spacing: 0.2px;
+}}
+
+QToolButton#layoutsDropdown:hover {{
+    background-color: {BG_HOVER};
+    color: {TEXT_PRIMARY};
+    border-color: {BORDER_LIGHT};
+}}
+
+QToolButton#layoutsDropdown:pressed,
+QToolButton#layoutsDropdown:on {{
+    background-color: {BG_ACTIVE};
+    border-color: {ACCENT};
+}}
+
+QToolButton#layoutsDropdown::menu-indicator {{
+    image: none;
+    width: 0;
+}}
+
+QToolButton#layoutsDropdown[hasSelection="true"] {{
+    border-top: 2px solid {ACCENT};
+    background-color: {BG_ELEVATED_SOFT};
+}}
+
+/* Extract primary action — the action bar's hero icon button. */
+QToolButton#extractButton {{
+    background-color: {ACCENT};
+    border: 1px solid {ACCENT};
+    border-radius: 9px;
+    min-width: 44px;
+    max-width: 44px;
+    min-height: 34px;
+    max-height: 34px;
+    padding: 4px 6px;
+}}
+
+QToolButton#extractButton:hover {{
+    background-color: {ACCENT_HOVER};
+    border-color: {ACCENT_HOVER};
+}}
+
+QToolButton#extractButton:pressed {{
+    background-color: {ACCENT_PRESSED};
+    border-color: {ACCENT_PRESSED};
+}}
+
+QToolButton#extractButton:disabled {{
+    background-color: {BG_ELEVATED_SOFT};
+    border-color: {BORDER};
+}}
+
+QLabel#statusChipBar {{
+    color: {TEXT_MUTED};
+    background-color: transparent;
+    font-size: {FONT_SM}px;
+    font-weight: 600;
+    letter-spacing: 0.2px;
+    padding: 0 4px;
 }}
 
 /* ── Grid editor control bar ────────────────────────────────────────────── */
