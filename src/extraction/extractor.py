@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 
 import fitz  # PyMuPDF
 
+from src.common.errors import ExtractionError
 from src.extraction.field_extractor import ExtractedFieldValue, FieldExtractor
 from src.extraction.grid import Grid, GridSegment
 from src.extraction.planner import ExtractionPlanner
@@ -66,24 +67,40 @@ class Extractor:
         progress_callback: Callable[[ExtractionProgress], None] | None = None,
         cancel_check: Callable[[], bool] | None = None,
     ) -> list[ExtractedGroup]:
-        groups: list[ExtractedGroup] = []
-        with fitz.open(self._pdf_path) as doc:
-            page_count = len(doc)
-            for page_index in range(page_count):
-                if cancel_check and cancel_check():
-                    break
+        try:
+            groups: list[ExtractedGroup] = []
+            with fitz.open(self._pdf_path) as doc:
+                page_count = len(doc)
+                for page_index in range(page_count):
+                    if cancel_check and cancel_check():
+                        break
 
-                if page_index not in self._grid.omitted_pages:
-                    groups.extend(self._extract_page(doc[page_index]))
+                    if page_index not in self._grid.omitted_pages:
+                        try:
+                            groups.extend(self._extract_page(doc[page_index]))
+                        except ExtractionError:
+                            raise
+                        except Exception as exc:  # noqa: BLE001 - wrapped to typed extraction error
+                            raise ExtractionError(
+                                f"Could not extract data from page {page_index + 1}.",
+                                detail=str(exc),
+                            ) from exc
 
-                if progress_callback:
-                    progress_callback(
-                        ExtractionProgress(
-                            page_index=page_index,
-                            page_count=page_count,
-                            groups_extracted=len(groups),
+                    if progress_callback:
+                        progress_callback(
+                            ExtractionProgress(
+                                page_index=page_index,
+                                page_count=page_count,
+                                groups_extracted=len(groups),
+                            )
                         )
-                    )
+        except ExtractionError:
+            raise
+        except Exception as exc:  # noqa: BLE001 - wrapped to typed extraction error
+            raise ExtractionError(
+                "Could not extract data from this PDF.",
+                detail=str(exc),
+            ) from exc
 
         return groups
 
@@ -92,25 +109,41 @@ class Extractor:
         *,
         cancel_check: Callable[[], bool] | None = None,
     ) -> Iterable[tuple[ExtractionProgress, list[ExtractedGroup]]]:
-        total_groups = 0
-        with fitz.open(self._pdf_path) as doc:
-            page_count = len(doc)
-            for page_index in range(page_count):
-                if cancel_check and cancel_check():
-                    break
+        try:
+            total_groups = 0
+            with fitz.open(self._pdf_path) as doc:
+                page_count = len(doc)
+                for page_index in range(page_count):
+                    if cancel_check and cancel_check():
+                        break
 
-                page_groups = []
-                if page_index not in self._grid.omitted_pages:
-                    page_groups = self._extract_page(doc[page_index])
-                    total_groups += len(page_groups)
-                yield (
-                    ExtractionProgress(
-                        page_index=page_index,
-                        page_count=page_count,
-                        groups_extracted=total_groups,
-                    ),
-                    page_groups,
-                )
+                    page_groups = []
+                    if page_index not in self._grid.omitted_pages:
+                        try:
+                            page_groups = self._extract_page(doc[page_index])
+                        except ExtractionError:
+                            raise
+                        except Exception as exc:  # noqa: BLE001 - wrapped to typed extraction error
+                            raise ExtractionError(
+                                f"Could not extract data from page {page_index + 1}.",
+                                detail=str(exc),
+                            ) from exc
+                        total_groups += len(page_groups)
+                    yield (
+                        ExtractionProgress(
+                            page_index=page_index,
+                            page_count=page_count,
+                            groups_extracted=total_groups,
+                        ),
+                        page_groups,
+                    )
+        except ExtractionError:
+            raise
+        except Exception as exc:  # noqa: BLE001 - wrapped to typed extraction error
+            raise ExtractionError(
+                "Could not iterate extraction pages for this PDF.",
+                detail=str(exc),
+            ) from exc
 
     def _extract_page(self, page: fitz.Page) -> list[ExtractedGroup]:
         resolved_groups = self._planner.plan_page(page)

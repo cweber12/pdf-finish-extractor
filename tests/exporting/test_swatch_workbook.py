@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import io
 
+import pytest
 from openpyxl import load_workbook
 from PIL import Image
 
+from src.common.errors import ExportError
 from src.exporting import export_swatch_workbook
 from src.extraction.extractor import ExtractedFieldValue, ExtractedGroup
 
@@ -75,3 +77,24 @@ def test_export_swatch_workbook_skips_invalid_image_bytes(tmp_path) -> None:
 
     assert sheet["B5"].value == "MAT-001"
     assert sheet._images == []
+
+
+def test_export_swatch_workbook_wraps_save_failure(monkeypatch, tmp_path) -> None:
+    path = tmp_path / "swatches.xlsx"
+    groups = [
+        ExtractedGroup(
+            values={
+                "material_id": ExtractedFieldValue("text", text="MAT-001"),
+            }
+        )
+    ]
+
+    def fail_save(_self, _path) -> None:
+        raise PermissionError("file is locked")
+
+    monkeypatch.setattr("src.exporting.swatch_workbook.Workbook.save", fail_save)
+
+    with pytest.raises(ExportError) as exc_info:
+        export_swatch_workbook(path, groups, manufacturer="", category="")
+
+    assert "Could not export to Excel" in exc_info.value.user_message

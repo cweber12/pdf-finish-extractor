@@ -20,6 +20,7 @@ from PyQt6.QtWidgets import (
     QWidgetAction,
 )
 
+from src.common.errors import to_user_message
 from src.extraction.extractor import ExtractionProgress, Extractor
 from src.extraction.grid import Grid, GridSegment
 from src.ui import theme
@@ -104,7 +105,13 @@ class _ExtractionWorker(QObject):
             )
             self.finished.emit(groups, self._cancel_requested)
         except Exception as exc:  # noqa: BLE001 - user-facing extraction failure
-            self.failed.emit(str(exc))
+            self.failed.emit(
+                to_user_message(
+                    exc,
+                    fallback="Could not extract data from this PDF.",
+                    max_len=180,
+                )
+            )
 
     @pyqtSlot()
     def cancel(self) -> None:

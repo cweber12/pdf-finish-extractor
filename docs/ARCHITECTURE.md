@@ -27,12 +27,14 @@ pdf-finish-extractor/
     │   └── image_processing.py  Compresses images to WebP for future upload use.
     ├── exporting/            File export logic; no UI, extraction, or network I/O.
     │   └── swatch_workbook.py  Writes extracted groups to Excel.
+    ├── common/               Shared cross-layer contracts.
+    │   └── errors.py         Typed error classes + UI-safe message mapping.
     └── upload/               Dormant network I/O kept for later reintegration.
         ├── worker_client.py  POSTs swatch to Cloudflare Worker.
         └── neon_client.py    Read-only Neon queries.
 ```
 
-**Dependency rule:** `ui` → `extraction`, `exporting`, `upload`. `exporting` accepts extracted groups with typed field values but has no dependency on UI, extraction internals, or network code. `extraction` and `upload` have no dependency on each other or on `ui`. Upload modules remain in the codebase for later reintegration, but upload actions are not exposed in the current UI.
+**Dependency rule:** `ui` → `extraction`, `exporting`, `upload`, `common`. `exporting` accepts extracted groups with typed field values but has no dependency on UI, extraction internals, or network code. `extraction` and `upload` have no dependency on each other or on `ui`. `common` may be imported by any layer for shared contracts only (no PyQt, network, or PDF rendering logic). Upload modules remain in the codebase for later reintegration, but upload actions are not exposed in the current UI.
 
 ---
 
@@ -134,6 +136,10 @@ Both mechanisms preserve extracted data integrity: skipped groups simply do not 
 - row 5 onward: one extracted group per row, with text fields as text cells and image fields as embedded images
 
 Invalid image bytes are skipped gracefully while preserving the rest of the row.
+
+### Typed error modes
+
+Extraction and export failures are wrapped into typed errors (`ExtractionError`, `ExportError`) from `src/common/errors.py`. UI layers map exceptions to user-safe text via `to_user_message(...)` before showing toasts. This keeps raw exception details out of the primary UI path while preserving deterministic error modes for tests.
 
 ---
 

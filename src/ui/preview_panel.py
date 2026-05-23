@@ -21,6 +21,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from src.common.errors import to_user_message
 from src.ui import theme
 
 if TYPE_CHECKING:
@@ -184,7 +185,11 @@ class PreviewPanel(QWidget):
                 category=category.strip(),
             )
         except Exception as exc:  # noqa: BLE001 - user-facing export failure
-            detail = str(exc)[:100]
+            detail = to_user_message(
+                exc,
+                fallback="Could not export to Excel.",
+                max_len=100,
+            )
             self._show_toast(f"Excel export failed: {detail}", success=False)
             return
 

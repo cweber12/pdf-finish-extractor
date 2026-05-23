@@ -4,6 +4,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
+from src.common.errors import ExtractionError
 from src.extraction.extractor import ExtractionProgress, Extractor
 from src.extraction.grid import CellGroup, FieldDefinition, Grid, OmitRegion
 from tests.extraction.conftest import H_LINE_PX, MATERIAL_A, MATERIAL_B, V_LINE_PX
@@ -198,3 +201,11 @@ class TestExtractorCancellation:
 
         assert groups == []
         assert progress_events == []
+
+
+class TestExtractorErrors:
+    def test_invalid_pdf_path_raises_typed_extraction_error(self) -> None:
+        with pytest.raises(ExtractionError) as exc_info:
+            Extractor("does-not-exist.pdf", right_grid()).extract_all_pages()
+
+        assert exc_info.value.user_message == "Could not extract data from this PDF."
