@@ -561,11 +561,15 @@ class GridEditor(QWidget):
 
         return w
 
+    @property
+    def ctrl_bar(self) -> QWidget:
+        """The toolbar widget; owned by GridEditor but placed by the parent layout."""
+        return self._ctrl_bar
+
     def _build_layout(self) -> None:
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
-        layout.addWidget(self._ctrl_bar)
 
         self._stack = QStackedWidget()
         self._stack.addWidget(self._build_empty_state())

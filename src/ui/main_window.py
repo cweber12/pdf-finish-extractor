@@ -124,6 +124,7 @@ class MainWindow(QMainWindow):
         self._splitter.setStretchFactor(1, 3)
         self._splitter.setSizes([900, 520])
 
+        root.addWidget(self._grid_editor.ctrl_bar)
         root.addWidget(self._splitter, stretch=1)
 
     def _build_action_bar(self) -> QWidget:

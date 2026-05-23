@@ -69,6 +69,16 @@ Rules:
 - No quotation marks anywhere in the message.
 - Do not wrap the message in a code block when presenting it to the user.
 
+## Commit Workflow
+
+After completing each user request, commit the changes automatically:
+
+1. Stage all modified files with `git add`.
+2. Write a commit message following the Commit Message Rule above.
+3. Run `git commit` — do not wait to be asked.
+
+Do not batch multiple unrelated requests into one commit. Each request gets its own commit.
+
 ## Handoff Checklist
 
 Before handoff, summarize:
