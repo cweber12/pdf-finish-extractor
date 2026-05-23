@@ -20,7 +20,7 @@ from PyQt6.QtWidgets import (
 )
 
 from src.extraction.extractor import ExtractionProgress, Extractor
-from src.extraction.grid import Grid
+from src.extraction.grid import Grid, GridSegment
 from src.ui import theme
 from src.ui.grid_editor import GridEditor
 from src.ui.preview_panel import PreviewPanel
@@ -39,10 +39,11 @@ class _ExtractionWorker(QObject):
     finished = pyqtSignal(object, bool)   # list[ExtractedPair], was_cancelled
     failed = pyqtSignal(str)
 
-    def __init__(self, pdf_path: str, profile: Grid) -> None:
+    def __init__(self, pdf_path: str, profile: Grid, segments: list[GridSegment]) -> None:
         super().__init__()
         self._pdf_path = pdf_path
         self._profile = profile
+        self._segments = segments
         self._cancel_requested = False
 
     @pyqtSlot()
@@ -56,7 +57,7 @@ class _ExtractionWorker(QObject):
                     progress.pairs_extracted,
                 )
 
-            extractor = Extractor(self._pdf_path, self._profile)
+            extractor = Extractor(self._pdf_path, self._profile, segments=self._segments or None)
             pairs = extractor.extract_all_pages(
                 progress_callback=on_progress,
                 cancel_check=lambda: self._cancel_requested,
@@ -326,7 +327,8 @@ class MainWindow(QMainWindow):
 
         self._preview_panel.setVisible(False)
         self._set_status("Preparing extraction…")
-        self._start_extraction_worker(pdf_path, profile)
+        segments = self._grid_editor.current_segments()
+        self._start_extraction_worker(pdf_path, profile, segments)
 
     def _on_cancel_extract(self) -> None:
         if not self._is_extracting() or self._extraction_worker is None:
@@ -401,9 +403,9 @@ class MainWindow(QMainWindow):
     # Extraction worker management
     # ------------------------------------------------------------------
 
-    def _start_extraction_worker(self, pdf_path: str, profile: Grid) -> None:
+    def _start_extraction_worker(self, pdf_path: str, profile: Grid, segments: list[GridSegment]) -> None:
         thread = QThread(self)
-        worker = _ExtractionWorker(pdf_path, profile)
+        worker = _ExtractionWorker(pdf_path, profile, segments)
         worker.moveToThread(thread)
 
         thread.started.connect(worker.run)

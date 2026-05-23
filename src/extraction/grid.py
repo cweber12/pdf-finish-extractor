@@ -55,6 +55,38 @@ class OmitRegion:
 
 
 @dataclass
+class GridSegment:
+    """Grid lines and pairings that apply from ``start_page`` onward.
+
+    Stored in 150-DPI pixel space, the same coordinate system as :class:`Grid`.
+    A segment covers all pages from ``start_page`` up to (but not including)
+    the ``start_page`` of the next segment in a sorted sequence.
+    """
+
+    start_page: int
+    horizontal_lines: list[int] = field(default_factory=list)
+    vertical_lines: list[int] = field(default_factory=list)
+    pairs: list[CellPair] = field(default_factory=list)
+
+    def to_dict(self) -> dict:
+        return {
+            "start_page": self.start_page,
+            "horizontal_lines": sorted(self.horizontal_lines),
+            "vertical_lines": sorted(self.vertical_lines),
+            "pairs": [p.to_dict() for p in self.pairs],
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "GridSegment":
+        return cls(
+            start_page=int(data.get("start_page", 0)),
+            horizontal_lines=[int(v) for v in data.get("horizontal_lines", [])],
+            vertical_lines=[int(v) for v in data.get("vertical_lines", [])],
+            pairs=[CellPair.from_dict(p) for p in data.get("pairs", [])],
+        )
+
+
+@dataclass
 class Grid:
     """Defines a grid layout, pairings, and per-PDF omit rules.
 

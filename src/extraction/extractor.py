@@ -10,7 +10,7 @@ from io import BytesIO
 import fitz  # PyMuPDF
 from PIL import Image
 
-from src.extraction.grid import CellPair, Grid
+from src.extraction.grid import CellPair, Grid, GridSegment
 
 # Grid coordinates are stored in 150-DPI rendered-pixel space.
 _GRID_DPI = 150
@@ -68,12 +68,19 @@ class Extractor:
         pdf_path: str,
         grid: Grid,
         *,
+        segments: list[GridSegment] | None = None,
         render_dpi: int = _DEFAULT_RENDER_DPI,
         full_page_render_threshold: int = _FULL_PAGE_RENDER_THRESHOLD,
         png_compress_level: int = 1,
     ) -> None:
         self._pdf_path = pdf_path
         self._grid = grid.normalized()
+        # Per-page layout segments override the global grid's lines/pairs for
+        # specific page ranges. The segment with the highest start_page that is
+        # still <= the page being extracted wins.
+        self._segments: list[GridSegment] = (
+            sorted(segments, key=lambda s: s.start_page) if segments else []
+        )
         self._render_dpi = render_dpi
         self._render_scale = render_dpi / 72.0
         self._full_page_render_threshold = max(1, full_page_render_threshold)
@@ -179,12 +186,32 @@ class Extractor:
             for material_id, image_rect in pending
         ]
 
+    def _layout_for_page(
+        self, page_index: int
+    ) -> tuple[list[int], list[int], list[CellPair]]:
+        """Return the (h_lines, v_lines, pairs) that apply to ``page_index``.
+
+        When per-page segments are present the segment with the highest
+        ``start_page`` that is still <= ``page_index`` wins. Falls back to the
+        global grid when no segments are configured.
+        """
+        if not self._segments:
+            return (
+                self._grid.horizontal_lines,
+                self._grid.vertical_lines,
+                self._grid.pairs,
+            )
+        applicable = [s for s in self._segments if s.start_page <= page_index]
+        seg = applicable[-1] if applicable else self._segments[0]
+        return seg.horizontal_lines, seg.vertical_lines, seg.pairs
+
     def _resolve_pairs_for_page(self, page: fitz.Page) -> list[_ResolvedPair]:
         h_pts, v_pts = self._page_boundaries(page)
         omit_regions = self._omit_regions_for_page(page)
+        _, _, pairs = self._layout_for_page(int(page.number))
 
         resolved: list[_ResolvedPair] = []
-        for pair in self._grid.pairs:
+        for pair in pairs:
             image_rect = self._cell_rect(pair.image_cell, h_pts, v_pts)
             text_rect = self._cell_rect(pair.text_cell, h_pts, v_pts)
             if image_rect is None or text_rect is None:
@@ -232,12 +259,14 @@ class Extractor:
 
     def _page_boundaries(self, page: fitz.Page) -> tuple[list[float], list[float]]:
         """Return sorted horizontal/vertical boundaries in PDF points."""
+        h_lines, v_lines, _ = self._layout_for_page(int(page.number))
+
         h_pts = [0.0]
-        h_pts.extend(y / _GRID_SCALE for y in self._grid.horizontal_lines)
+        h_pts.extend(y / _GRID_SCALE for y in h_lines)
         h_pts.append(float(page.rect.height))
 
         v_pts = [0.0]
-        v_pts.extend(x / _GRID_SCALE for x in self._grid.vertical_lines)
+        v_pts.extend(x / _GRID_SCALE for x in v_lines)
         v_pts.append(float(page.rect.width))
 
         # Clamp profile lines to the current page and remove duplicates. This

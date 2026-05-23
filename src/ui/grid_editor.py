@@ -38,7 +38,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from src.extraction.grid import CellPair, Grid, OmitRegion
+from src.extraction.grid import CellPair, Grid, GridSegment, OmitRegion
 from src.ui import theme
 from src.ui.pdf_viewer import PDFViewer
 
@@ -427,6 +427,11 @@ class GridEditor(QWidget):
         self._omitted_pages: set[int] = set()
         self._omit_regions: list[OmitRegion] = []
 
+        # Per-page layout history for this session.  Cleared on PDF open / clear.
+        # Each GridSegment records the grid config in effect from its start_page
+        # onward.  The entry with the highest start_page <= current page wins.
+        self._segments: list[GridSegment] = []
+
         # Interaction state
         self._mode: str = "idle"
         self._preview: int | None = None
@@ -498,6 +503,24 @@ class GridEditor(QWidget):
         self._next_page_btn.setToolTip("Next page")
         self._next_page_btn.clicked.connect(lambda: self._go_to_page(self.current_page_index() + 1))
         bar.addWidget(self._next_page_btn)
+
+        self._seg_prev_btn = QPushButton("←")
+        self._seg_prev_btn.setObjectName("pageNavButton")
+        self._seg_prev_btn.setToolTip("Go to the previous layout segment.")
+        self._seg_prev_btn.setEnabled(False)
+        self._seg_prev_btn.clicked.connect(self._on_nav_prev_segment)
+        bar.addWidget(self._seg_prev_btn)
+
+        self._seg_label = QLabel("Layout —")
+        self._seg_label.setObjectName("pageStatus")
+        bar.addWidget(self._seg_label)
+
+        self._seg_next_btn = QPushButton("→")
+        self._seg_next_btn.setObjectName("pageNavButton")
+        self._seg_next_btn.setToolTip("Go to the next layout segment.")
+        self._seg_next_btn.setEnabled(False)
+        self._seg_next_btn.clicked.connect(self._on_nav_next_segment)
+        bar.addWidget(self._seg_next_btn)
 
         self._zoom_label = QLabel("100%")
         self._zoom_label.setObjectName("zoomStatus")
@@ -601,8 +624,16 @@ class GridEditor(QWidget):
         self._viewer.open(path)
         self._zoom_label.setText("100%")
         self._stack.setCurrentIndex(1)
-        self._set_hint("Use Rows or Columns to place boundaries on any page. The grid applies to all pages.")
+        self._set_hint("Use Rows or Columns to place boundaries on any page. Changes apply to this page and forward.")
+        # Reset layout history; current grid applies to all pages until edited.
+        self._segments = [GridSegment(
+            start_page=0,
+            horizontal_lines=list(self._h_lines),
+            vertical_lines=list(self._v_lines),
+            pairs=list(self._pairs),
+        )]
         self._update_page_controls()
+        self._update_segment_nav()
         self._reposition_overlay()
 
     def current_profile(self) -> Grid | None:
@@ -616,6 +647,10 @@ class GridEditor(QWidget):
             omit_regions=list(self._omit_regions),
         )
 
+    def current_segments(self) -> list[GridSegment]:
+        """Return the per-page layout history for the current session."""
+        return list(self._segments)
+
     def apply_profile(self, grid: Grid) -> None:
         self._h_lines = sorted(grid.horizontal_lines)
         self._v_lines = sorted(grid.vertical_lines)
@@ -627,8 +662,16 @@ class GridEditor(QWidget):
         self._hovered_line = None
         self._omit_start = None
         self._omit_preview = None
+        # Treat the applied profile as the baseline layout for all pages.
+        self._segments = [GridSegment(
+            start_page=0,
+            horizontal_lines=list(self._h_lines),
+            vertical_lines=list(self._v_lines),
+            pairs=list(self._pairs),
+        )]
         self._set_hint("Profile applied. Navigate pages to review page/section omissions.")
         self._update_page_controls()
+        self._update_segment_nav()
         self._overlay.update()
 
     def current_page_index(self) -> int:
@@ -659,7 +702,9 @@ class GridEditor(QWidget):
         self._omit_start = None
         self._omit_preview = None
         self._update_page_controls()
-        self._set_hint(f"Viewing page {index + 1}. Grid edits here still apply to every page.")
+        self._load_segment_for_page(index)
+        self._update_segment_nav()
+        self._set_hint(f"Viewing page {index + 1}. Edits apply to this page and forward.")
         self._reposition_overlay()
 
     def _toggle_current_page_omitted(self) -> None:
@@ -985,6 +1030,7 @@ class GridEditor(QWidget):
             self._dragging = None
             self._set_hint("Line moved. Right-click any line to delete it.")
             self._overlay.update()
+            self._record_segment_change()
             return
 
         if self._placing:
@@ -1006,6 +1052,7 @@ class GridEditor(QWidget):
             self._placing = False
             self._preview = None
             self._overlay.update()
+            self._record_segment_change()
 
     def _on_wheel(self, event: QWheelEvent) -> None:
         """Zoom on mouse wheel. Cancels any in-progress placement first."""
@@ -1054,6 +1101,7 @@ class GridEditor(QWidget):
                 ]
                 if len(self._pairs) != before:
                     self._set_hint("Cell pair removed.")
+                    self._record_segment_change()
                 self._overlay.update()
             return
 
@@ -1063,11 +1111,13 @@ class GridEditor(QWidget):
             self._pairs = []
             self._set_hint("Row boundary removed. Pairings were cleared because the grid changed.")
             self._overlay.update()
+            self._record_segment_change()
         elif hit_v is not None:
             del self._v_lines[hit_v]
             self._pairs = []
             self._set_hint("Column boundary removed. Pairings were cleared because the grid changed.")
             self._overlay.update()
+            self._record_segment_change()
 
     def _on_pair_click(self, ox: int, oy: int) -> None:
         cell = self._cell_at_orig(ox, oy)
@@ -1083,6 +1133,7 @@ class GridEditor(QWidget):
             self._pairs.append(CellPair(image_cell=self._pending_image, text_cell=cell))
             self._pending_image = None
             self._set_hint("Pair created. Continue pairing cells or right-click a pair to remove it.")
+            self._record_segment_change()
         self._overlay.update()
 
     # ------------------------------------------------------------------
@@ -1100,9 +1151,77 @@ class GridEditor(QWidget):
         self._hovered_line = None
         self._omit_start = None
         self._omit_preview = None
+        self._segments = [GridSegment(start_page=0)]
         self._update_page_controls()
+        self._update_segment_nav()
         self._set_hint("Grid and omissions cleared. Add row and column boundaries to start again.")
         self._overlay.update()
+
+    # ------------------------------------------------------------------
+    # Layout segment management
+    # ------------------------------------------------------------------
+
+    def _segment_index_for_page(self, page_index: int) -> int:
+        """Return the index of the segment whose layout applies to ``page_index``."""
+        best = 0
+        for i, seg in enumerate(self._segments):
+            if seg.start_page <= page_index:
+                best = i
+            else:
+                break
+        return best
+
+    def _record_segment_change(self) -> None:
+        """Snapshot the current grid state into _segments for the active page."""
+        if not self._segments:
+            return
+        page_index = self.current_page_index()
+        seg_idx = self._segment_index_for_page(page_index)
+        new_seg = GridSegment(
+            start_page=page_index,
+            horizontal_lines=list(self._h_lines),
+            vertical_lines=list(self._v_lines),
+            pairs=list(self._pairs),
+        )
+        if self._segments[seg_idx].start_page == page_index:
+            self._segments[seg_idx] = new_seg
+        else:
+            self._segments.insert(seg_idx + 1, new_seg)
+        self._update_segment_nav()
+
+    def _load_segment_for_page(self, page_index: int) -> None:
+        """Load the layout applicable to ``page_index`` into the editor state."""
+        if not self._segments:
+            return
+        seg = self._segments[self._segment_index_for_page(page_index)]
+        self._h_lines = sorted(seg.horizontal_lines)
+        self._v_lines = sorted(seg.vertical_lines)
+        self._pairs = list(seg.pairs)
+        self._pending_image = None
+        self._overlay.update()
+
+    def _update_segment_nav(self) -> None:
+        """Refresh the segment navigator label and button enabled states."""
+        total = len(self._segments)
+        if total == 0:
+            self._seg_label.setText("Layout —")
+            self._seg_prev_btn.setEnabled(False)
+            self._seg_next_btn.setEnabled(False)
+            return
+        idx = self._segment_index_for_page(self.current_page_index())
+        self._seg_label.setText(f"Layout {idx + 1}/{total}")
+        self._seg_prev_btn.setEnabled(idx > 0)
+        self._seg_next_btn.setEnabled(idx < total - 1)
+
+    def _on_nav_prev_segment(self) -> None:
+        idx = self._segment_index_for_page(self.current_page_index())
+        if idx > 0:
+            self._go_to_page(self._segments[idx - 1].start_page)
+
+    def _on_nav_next_segment(self) -> None:
+        idx = self._segment_index_for_page(self.current_page_index())
+        if idx < len(self._segments) - 1:
+            self._go_to_page(self._segments[idx + 1].start_page)
 
 
 
