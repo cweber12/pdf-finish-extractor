@@ -63,7 +63,9 @@ from src.extraction.grid import (
 )
 from src.ui import theme
 from src.ui.grid_editor_grouping import apply_group_click
+from src.ui.grid_editor_modes import mode_hint, mode_uses_crosshair, resolved_mode
 from src.ui.grid_editor_overlay import _handle_rects_display, _OverlayWidget, _page_rect_display
+from src.ui.grid_editor_right_click import decide_right_click
 from src.ui.pdf_viewer import PDFViewer
 
 _LINE_HIT_DIST = 5
@@ -800,7 +802,7 @@ class GridEditor(QWidget):
     # ------------------------------------------------------------------
 
     def _set_mode(self, mode: str, active_btn: QToolButton) -> None:
-        self._mode = mode if active_btn.isChecked() else "idle"
+        self._mode = resolved_mode(mode, is_checked=active_btn.isChecked())
         for attr in ("_btn_add_h", "_btn_add_v", "_btn_grouping", "_btn_omit"):
             btn = getattr(self, attr, None)
             if btn and btn is not active_btn:
@@ -811,15 +813,7 @@ class GridEditor(QWidget):
         self._omit_preview = None
         self._overlay.update()
         self._update_cursor(None, None)
-
-        hints = {
-            "idle": "Drag existing handles to move lines. Right-click a line to remove it.",
-            "add_h": "Click-drag across the PDF to place a horizontal row boundary.",
-            "add_v": "Click-drag across the PDF to place a vertical column boundary.",
-            "grouping": "Click cells in field order until the group is complete.",
-            "omit": "Click-drag a section on this page to ignore during extraction. Right-click an ignored section to remove it.",
-        }
-        self._set_hint(hints.get(self._mode, hints["idle"]))
+        self._set_hint(mode_hint(self._mode))
 
     def _set_hint(self, _text: str) -> None:
         # Hint label was removed in favor of static button tooltips; call sites
@@ -836,7 +830,7 @@ class GridEditor(QWidget):
             if hit_v is not None:
                 self._overlay.setCursor(Qt.CursorShape.SizeHorCursor)
                 return
-        if self._mode in ("add_h", "add_v", "omit"):
+        if mode_uses_crosshair(self._mode):
             self._overlay.setCursor(Qt.CursorShape.CrossCursor)
         else:
             self._overlay.setCursor(Qt.CursorShape.ArrowCursor)
@@ -1025,43 +1019,59 @@ class GridEditor(QWidget):
 
     def _on_right_click(self, dx: int, dy: int) -> None:
         ox, oy = self._d2o(dx, dy)
-
-        if self._mode == "omit":
-            region_idx = self._omit_region_at_orig(ox, oy)
-            if region_idx is not None:
-                del self._omit_regions[region_idx]
-                self._set_hint("Ignored section removed.")
-                self._overlay.update()
-            return
-
-        if self._mode == "grouping":
-            if self._pending_group_cells:
-                self._pending_group_cells = []
-                self._set_hint("Group selection cancelled.")
-                self._overlay.update()
-                return
-            cell = self._cell_at_orig(ox, oy)
-            if cell:
-                before = len(self._groups)
-                self._groups = [group for group in self._groups if cell not in group.cells()]
-                if len(self._groups) != before:
-                    self._set_hint("Group removed.")
-                    self._record_segment_change()
-                self._overlay.update()
-            return
-
+        cell = self._cell_at_orig(ox, oy)
         hit_h, hit_v = self._line_hit(dx, dy)
-        if hit_h is not None:
-            del self._h_lines[hit_h]
-            self._clear_groups_for_grid_change()
-            self._set_hint("Row boundary removed. Groups were cleared because the grid changed.")
+        decision = decide_right_click(
+            mode=self._mode,
+            omit_region_index=self._omit_region_at_orig(ox, oy) if self._mode == "omit" else None,
+            pending_group_cells=self._pending_group_cells,
+            clicked_cell=cell,
+            hit_h_index=hit_h,
+            hit_v_index=hit_v,
+        )
+        if not decision.consumed:
+            return
+
+        if decision.omit_region_index_to_remove is not None:
+            del self._omit_regions[decision.omit_region_index_to_remove]
+            if decision.hint is not None:
+                self._set_hint(decision.hint)
             self._overlay.update()
-            self._record_segment_change()
-        elif hit_v is not None:
-            del self._v_lines[hit_v]
-            self._clear_groups_for_grid_change()
-            self._set_hint("Column boundary removed. Groups were cleared because the grid changed.")
+            return
+
+        if decision.clear_pending_group_selection:
+            self._pending_group_cells = []
+            if decision.hint is not None:
+                self._set_hint(decision.hint)
             self._overlay.update()
+            return
+
+        if decision.remove_groups_containing_cell is not None:
+            before = len(self._groups)
+            self._groups = [
+                group
+                for group in self._groups
+                if decision.remove_groups_containing_cell not in group.cells()
+            ]
+            if len(self._groups) != before:
+                self._set_hint("Group removed.")
+                self._record_segment_change()
+            self._overlay.update()
+            return
+
+        if decision.remove_h_line_index is not None:
+            del self._h_lines[decision.remove_h_line_index]
+        elif decision.remove_v_line_index is not None:
+            del self._v_lines[decision.remove_v_line_index]
+        else:
+            return
+
+        if decision.clear_groups_for_grid_change:
+            self._clear_groups_for_grid_change()
+        if decision.hint is not None:
+            self._set_hint(decision.hint)
+        self._overlay.update()
+        if decision.record_segment_change:
             self._record_segment_change()
 
     def _on_group_click(self, ox: int, oy: int) -> None:
