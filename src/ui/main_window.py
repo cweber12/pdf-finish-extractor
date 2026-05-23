@@ -4,13 +4,13 @@ from PyQt6.QtCore import QObject, QSize, Qt, QThread, pyqtSignal, pyqtSlot
 from PyQt6.QtGui import QAction, QCloseEvent, QColor, QIcon
 from PyQt6.QtWidgets import (
     QFileDialog,
-    QFrame,
     QHBoxLayout,
     QInputDialog,
     QLabel,
     QMainWindow,
     QMenu,
     QProgressBar,
+    QPushButton,
     QSizePolicy,
     QSplitter,
     QToolButton,
@@ -71,16 +71,6 @@ class _ExtractionWorker(QObject):
         self._cancel_requested = True
 
 
-def _make_separator() -> QFrame:
-    """Thin vertical separator that matches the grid editor's toolbar style."""
-    sep = QFrame()
-    sep.setObjectName("toolbarSeparator")
-    sep.setFrameShape(QFrame.Shape.NoFrame)
-    sep.setFixedWidth(1)
-    sep.setFixedHeight(28)
-    return sep
-
-
 class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
@@ -138,19 +128,24 @@ class MainWindow(QMainWindow):
 
         layout.addWidget(self._build_brand())
 
-        # File action — icon-only for cohesion with the grid editor.
-        self._open_btn = GlowIconButton(
-            "folder-open.svg",
-            "Open a PDF and start defining extraction boundaries.",
-        )
+        # File action — text+icon button so the entry point reads clearly.
+        self._open_btn = QPushButton(QIcon(theme.icon_path("folder-open.svg")), "  Open PDF")
+        self._open_btn.setObjectName("openPdfButton")
+        self._open_btn.setIconSize(QSize(16, 16))
+        self._open_btn.setToolTip("Open a PDF and start defining extraction boundaries.")
+        self._open_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._open_btn.clicked.connect(self._on_open_pdf)
         layout.addWidget(self._open_btn)
 
-        layout.addSpacing(6)
-        layout.addWidget(_make_separator())
-        layout.addSpacing(6)
+        layout.addSpacing(10)
 
-        # Grid Layouts dropdown — square edges, flush with the bottom of the bar.
+        # Grid Layouts cell — dropdown fills the entire cell, flush with the bar.
+        layouts_cell = QWidget()
+        layouts_cell.setObjectName("layoutsCell")
+        cell_layout = QHBoxLayout(layouts_cell)
+        cell_layout.setContentsMargins(0, 0, 0, 0)
+        cell_layout.setSpacing(0)
+
         self._profile_button = QToolButton()
         self._profile_button.setObjectName("layoutsDropdown")
         self._profile_button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
@@ -158,33 +153,31 @@ class MainWindow(QMainWindow):
         self._profile_button.setIcon(QIcon(theme.icon_path("layers.svg")))
         self._profile_button.setIconSize(QSize(16, 16))
         self._profile_button.setText("Grid Layouts")
-        self._profile_button.setToolTip("Load a saved grid layout or save the current one.")
+        self._profile_button.setToolTip(
+            "Load a saved grid layout or save the current one."
+        )
         self._profile_button.setCursor(Qt.CursorShape.PointingHandCursor)
         self._profile_button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self._profile_button.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+        )
         self._profile_menu = QMenu(self._profile_button)
         self._profile_button.setMenu(self._profile_menu)
-        layout.addWidget(self._profile_button, alignment=Qt.AlignmentFlag.AlignBottom)
+        cell_layout.addWidget(self._profile_button)
 
-        self._save_profile_btn = GlowIconButton(
-            "save.svg",
-            "Save the current grid lines and pairings as a reusable layout.",
-        )
-        self._save_profile_btn.clicked.connect(self._on_save_profile)
-        layout.addWidget(self._save_profile_btn)
+        layouts_cell.setMinimumWidth(280)
+        layout.addWidget(layouts_cell, alignment=Qt.AlignmentFlag.AlignBottom)
 
         self._refresh_profiles()
 
-        layout.addSpacing(6)
-        layout.addWidget(_make_separator())
-        layout.addSpacing(6)
+        layout.addSpacing(10)
 
-        # Extract action — primary icon button with a stronger accent glow.
-        self._extract_btn = GlowIconButton(
-            "play.svg",
-            "Run extraction using the current grid and pairings.",
-        )
+        # Extract action — primary text+icon button with the new extract glyph.
+        self._extract_btn = QPushButton(QIcon(theme.icon_path("extract.svg")), "  Extract")
         self._extract_btn.setObjectName("extractButton")
-        self._extract_btn.setIconSize(QSize(22, 22))
+        self._extract_btn.setIconSize(QSize(16, 16))
+        self._extract_btn.setToolTip("Run extraction using the current grid and pairings.")
+        self._extract_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._extract_btn.clicked.connect(self._on_extract)
         layout.addWidget(self._extract_btn)
 
@@ -221,7 +214,7 @@ class MainWindow(QMainWindow):
         return bar
 
     def _build_brand(self) -> QWidget:
-        """Logo + title + tagline cluster on the left of the action bar."""
+        """Logo + title cluster on the left of the action bar."""
         cluster = QWidget()
         cluster.setObjectName("brandCluster")
         cluster_layout = QHBoxLayout(cluster)
@@ -230,23 +223,15 @@ class MainWindow(QMainWindow):
 
         logo = QLabel()
         logo.setObjectName("brandMark")
-        logo.setFixedSize(34, 34)
-        logo.setPixmap(QIcon(theme.icon_path("logo-mark.svg")).pixmap(34, 34))
+        logo.setFixedSize(36, 36)
+        logo.setPixmap(QIcon(theme.icon_path("logo-mark.svg")).pixmap(36, 36))
         logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
         cluster_layout.addWidget(logo)
 
-        text = QWidget()
-        text.setObjectName("brandText")
-        text_layout = QVBoxLayout(text)
-        text_layout.setContentsMargins(0, 0, 0, 0)
-        text_layout.setSpacing(1)
         app_title = QLabel("PDF Finish Extractor")
         app_title.setObjectName("appTitle")
-        app_subtitle = QLabel("Grid layouts · Swatch extraction · Upload review")
-        app_subtitle.setObjectName("appSubtitle")
-        text_layout.addWidget(app_title)
-        text_layout.addWidget(app_subtitle)
-        cluster_layout.addWidget(text)
+        app_title.setAlignment(Qt.AlignmentFlag.AlignVCenter)
+        cluster_layout.addWidget(app_title)
         return cluster
 
     # ------------------------------------------------------------------
@@ -444,7 +429,6 @@ class MainWindow(QMainWindow):
     def _set_extraction_running(self, running: bool) -> None:
         self._open_btn.setEnabled(not running)
         self._profile_button.setEnabled(not running)
-        self._save_profile_btn.setEnabled(not running)
         self._extract_btn.setEnabled(not running)
         self._grid_editor.setEnabled(not running)
 

@@ -125,20 +125,11 @@ QLabel#brandMark {{
 
 QLabel#appTitle {{
     color: {TEXT_PRIMARY};
-    font-size: 16px;
+    font-size: 17px;
     font-weight: 800;
     letter-spacing: 0.2px;
 }}
 
-QLabel#appSubtitle {{
-    color: {TEXT_MUTED};
-    font-size: 10px;
-    font-weight: 700;
-    letter-spacing: 1.4px;
-    text-transform: uppercase;
-}}
-
-QLabel#profileHelper,
 QLabel#statusText {{
     color: {TEXT_MUTED};
     font-size: {FONT_SM}px;
@@ -156,32 +147,35 @@ QWidget#topActionCluster {{
     border: none;
 }}
 
-/* Grid Layouts dropdown — square edges, flush with the bottom of the bar */
+/* Grid Layouts dropdown — square edges, flush with the bar, no chrome. */
+QWidget#layoutsCell {{
+    background-color: transparent;
+    border: none;
+}}
+
 QToolButton#layoutsDropdown {{
-    background-color: {BG_ELEVATED};
+    background-color: transparent;
     color: {TEXT_PRIMARY};
-    border: 1px solid {BORDER};
-    border-bottom: none;
+    border: none;
+    border-left: 1px solid {BORDER};
+    border-right: 1px solid {BORDER};
     border-radius: 0;
-    padding: 0 14px 0 12px;
+    padding: 0 18px 0 14px;
     min-height: 63px;
     max-height: 63px;
-    min-width: 210px;
     font-size: {FONT_MD}px;
     font-weight: 650;
     letter-spacing: 0.2px;
 }}
 
 QToolButton#layoutsDropdown:hover {{
-    background-color: {BG_HOVER};
+    background-color: rgba(56, 189, 248, 0.06);
     color: {TEXT_PRIMARY};
-    border-color: {BORDER_LIGHT};
 }}
 
 QToolButton#layoutsDropdown:pressed,
 QToolButton#layoutsDropdown:on {{
-    background-color: {BG_ACTIVE};
-    border-color: {ACCENT};
+    background-color: rgba(56, 189, 248, 0.10);
 }}
 
 QToolButton#layoutsDropdown::menu-indicator {{
@@ -191,34 +185,65 @@ QToolButton#layoutsDropdown::menu-indicator {{
 
 QToolButton#layoutsDropdown[hasSelection="true"] {{
     border-top: 2px solid {ACCENT};
-    background-color: {BG_ELEVATED_SOFT};
+    color: {ACCENT};
 }}
 
-/* Extract primary action — the action bar's hero icon button. */
-QToolButton#extractButton {{
+/* Open PDF — secondary text+icon button in the action bar. */
+QPushButton#openPdfButton {{
+    background-color: transparent;
+    color: {TEXT_PRIMARY};
+    border: 1px solid {BORDER_LIGHT};
+    border-radius: 8px;
+    padding: 7px 14px 7px 12px;
+    min-height: 22px;
+    font-size: {FONT_MD}px;
+    font-weight: 650;
+    icon-size: 16px;
+}}
+
+QPushButton#openPdfButton:hover {{
+    background-color: rgba(56, 189, 248, 0.10);
+    border-color: rgba(56, 189, 248, 0.55);
+    color: {TEXT_PRIMARY};
+}}
+
+QPushButton#openPdfButton:pressed {{
+    background-color: rgba(56, 189, 248, 0.18);
+}}
+
+QPushButton#openPdfButton:disabled {{
+    color: {TEXT_DISABLED};
+    border-color: {BORDER};
+    background-color: transparent;
+}}
+
+/* Extract primary action — the action bar's hero text+icon button. */
+QPushButton#extractButton {{
     background-color: {ACCENT};
+    color: {ACCENT_TEXT};
     border: 1px solid {ACCENT};
-    border-radius: 9px;
-    min-width: 44px;
-    max-width: 44px;
-    min-height: 34px;
-    max-height: 34px;
-    padding: 4px 6px;
+    border-radius: 8px;
+    padding: 7px 18px 7px 14px;
+    min-height: 22px;
+    font-size: {FONT_MD}px;
+    font-weight: 750;
+    icon-size: 16px;
 }}
 
-QToolButton#extractButton:hover {{
+QPushButton#extractButton:hover {{
     background-color: {ACCENT_HOVER};
     border-color: {ACCENT_HOVER};
 }}
 
-QToolButton#extractButton:pressed {{
+QPushButton#extractButton:pressed {{
     background-color: {ACCENT_PRESSED};
     border-color: {ACCENT_PRESSED};
 }}
 
-QToolButton#extractButton:disabled {{
+QPushButton#extractButton:disabled {{
     background-color: {BG_ELEVATED_SOFT};
     border-color: {BORDER};
+    color: {TEXT_DISABLED};
 }}
 
 QLabel#statusChipBar {{
