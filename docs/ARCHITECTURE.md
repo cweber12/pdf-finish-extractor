@@ -21,7 +21,9 @@ pdf-finish-extractor/
     │   └── profile_manager.py  Saves/loads Grid profiles as JSON files.
     ├── extraction/           Pure extraction logic; no UI, export, or network I/O.
     │   ├── grid.py           Grid data model (lines, field recipe, groups, omit rules).
-    │   ├── extractor.py      Applies a Grid to a PDF; returns ExtractedGroup list.
+    │   ├── planner.py        Resolves page-local field rectangles from Grid + segments + omit rules.
+    │   ├── field_extractor.py Executes text/image extraction for resolved fields.
+    │   ├── extractor.py      Orchestrates planning + field extraction; returns ExtractedGroup list.
     │   └── image_processing.py  Compresses images to WebP for future upload use.
     ├── exporting/            File export logic; no UI, extraction, or network I/O.
     │   └── swatch_workbook.py  Writes extracted groups to Excel.
@@ -56,9 +58,8 @@ _ExtractionWorker.run() (off main thread)
   ├─ Extractor.extract_all_pages()
   │  ├─ skip pages in omitted_pages
   │  ├─ for each active page:
-  │  │  ├─ render page image data when needed
-  │  │  ├─ skip groups intersecting omit_regions
-  │  │  ├─ for each group: extract each typed field area
+  │  │  ├─ ExtractionPlanner.plan_page() resolves typed field areas and applies omit-region filtering
+  │  │  ├─ FieldExtractor.extract_groups() reads text/images from resolved areas
   │  │  └─ emit progress signal
   │  └─ return List[ExtractedGroup]
   ├─ emit finished signal with groups
