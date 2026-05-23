@@ -17,7 +17,8 @@ pdf-finish-extractor/
     │   ├── main_window.py    Top-level window, toolbar, wires UI components together.
     │   ├── extraction_session.py  QThread extraction lifecycle seam used by MainWindow.
     │   ├── pdf_viewer.py     Renders a PDF page to QPixmap via PyMuPDF.
-    │   ├── grid_editor.py    Overlay for drawing lines, defining fields, grouping cells, omitting pages/regions.
+    │   ├── grid_editor.py    GridEditor state, controls, and interaction handlers.
+    │   ├── grid_editor_overlay.py  Overlay rendering + pointer event forwarding seam for GridEditor.
     │   ├── preview_panel.py  Shows extracted groups; triggers Excel export.
     │   └── profile_manager.py  Saves/loads Grid profiles as JSON files.
     ├── extraction/           Pure extraction logic; no UI, export, or network I/O.
