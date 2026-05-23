@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from src.extraction.extractor import Extractor
+from src.extraction.extractor import ExtractionProgress, Extractor
 from src.extraction.grid import CellGroup, FieldDefinition, Grid, OmitRegion
 from tests.extraction.conftest import H_LINE_PX, MATERIAL_A, MATERIAL_B, V_LINE_PX
 
@@ -118,3 +118,83 @@ class TestExtractorGroups:
 
         assert len(groups) == 1
         assert groups[0].values["material_id"].text == MATERIAL_B[0]
+
+    def test_empty_group_with_all_blank_fields_is_dropped(self, empty_text_pdf: Path) -> None:
+        grid = Grid(
+            vertical_lines=[V_LINE_PX],
+            fields=[FieldDefinition("material_id", "text", 1)],
+            groups=[CellGroup(field_cells={"material_id": [(0, 1)]})],
+        )
+
+        groups = Extractor(str(empty_text_pdf), grid).extract_all_pages()
+
+        assert groups == []
+
+    def test_omitted_pages_are_skipped_without_error(self, multi_page_pdf: Path) -> None:
+        grid = right_grid()
+        grid.omitted_pages = [0]
+
+        groups = Extractor(str(multi_page_pdf), grid).extract_all_pages()
+
+        assert len(groups) == 2
+        assert all(group.values["material_id"].text in {MATERIAL_A[0], MATERIAL_B[0]} for group in groups)
+
+    def test_omit_region_on_different_page_does_not_skip_group(self, single_page_pdf: Path) -> None:
+        grid = right_grid()
+        grid.omit_regions = [OmitRegion(page_index=1, rect=(0, 0, 60, 60))]
+
+        groups = Extractor(str(single_page_pdf), grid).extract_all_pages()
+
+        assert len(groups) == 2
+
+    def test_non_intersecting_omit_region_keeps_group(self, single_page_pdf: Path) -> None:
+        grid = right_grid()
+        # Region is fully outside the rendered page bounds.
+        grid.omit_regions = [OmitRegion(page_index=0, rect=(1000, 1000, 1100, 1100))]
+
+        groups = Extractor(str(single_page_pdf), grid).extract_all_pages()
+
+        assert len(groups) == 2
+
+
+class TestExtractorCancellation:
+    def test_cancel_after_first_page_stops_processing_remaining_pages(
+        self,
+        multi_page_pdf: Path,
+    ) -> None:
+        cancel_checks = 0
+        progress_events: list[tuple[int, int, int]] = []
+
+        def should_cancel() -> bool:
+            nonlocal cancel_checks
+            cancel_checks += 1
+            return cancel_checks > 1
+
+        def on_progress(progress: ExtractionProgress) -> None:
+            progress_events.append(
+                (progress.page_index, progress.page_count, progress.groups_extracted)
+            )
+
+        groups = Extractor(str(multi_page_pdf), right_grid()).extract_all_pages(
+            progress_callback=on_progress,
+            cancel_check=should_cancel,
+        )
+
+        assert len(groups) == 2
+        assert progress_events == [(0, 2, 2)]
+
+    def test_cancel_before_first_page_returns_empty_and_no_progress(
+        self,
+        multi_page_pdf: Path,
+    ) -> None:
+        progress_events: list[tuple[int, int, int]] = []
+
+        groups = Extractor(str(multi_page_pdf), right_grid()).extract_all_pages(
+            progress_callback=lambda progress: progress_events.append(
+                (progress.page_index, progress.page_count, progress.groups_extracted)
+            ),
+            cancel_check=lambda: True,
+        )
+
+        assert groups == []
+        assert progress_events == []
