@@ -1,34 +1,45 @@
 from __future__ import annotations
 
-from __future__ import annotations
-
 import math
 from collections.abc import Callable, Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from io import BytesIO
 
 import fitz  # PyMuPDF
 from PIL import Image
 
-from src.extraction.grid import CellPair, Grid, GridSegment
+from src.extraction.grid import CellAddress, CellGroup, FieldDefinition, Grid, GridSegment
 
 # Grid coordinates are stored in 150-DPI rendered-pixel space.
 _GRID_DPI = 150
 _GRID_SCALE = _GRID_DPI / 72.0  # grid pixels per PDF point
 
-# Rendering at 150 DPI keeps the existing output size/quality behavior.
 _DEFAULT_RENDER_DPI = 150
-
-# Full-page rendering is much faster when a page has several swatch crops.
-# For a single crop, clipped rendering can use less memory.
 _FULL_PAGE_RENDER_THRESHOLD = 2
 
 
+@dataclass(frozen=True)
+class ExtractedFieldValue:
+    field_type: str
+    text: str = ""
+    image_bytes: bytes = b""
+
+    @property
+    def has_data(self) -> bool:
+        return bool(self.text) if self.field_type == "text" else bool(self.image_bytes)
+
+
 @dataclass
-class ExtractedPair:
-    material_id: str
-    image_bytes: bytes
-    is_duplicate: bool = False
+class ExtractedGroup:
+    values: dict[str, ExtractedFieldValue] = field(default_factory=dict)
+
+    @property
+    def has_data(self) -> bool:
+        return any(value.has_data for value in self.values.values())
+
+    @property
+    def field_names(self) -> list[str]:
+        return list(self.values)
 
 
 @dataclass(frozen=True)
@@ -37,31 +48,22 @@ class ExtractionProgress:
 
     page_index: int
     page_count: int
-    pairs_extracted: int
+    groups_extracted: int
+
+@dataclass(frozen=True)
+class _ResolvedField:
+    definition: FieldDefinition
+    rect: fitz.Rect
 
 
 @dataclass(frozen=True)
-class _ResolvedPair:
-    """Pair whose grid cells have been converted to PDF-point rectangles."""
-
-    source: CellPair
-    image_rect: fitz.Rect
-    text_rect: fitz.Rect
+class _ResolvedGroup:
+    source: CellGroup
+    fields: list[_ResolvedField]
 
 
 class Extractor:
-    """Apply a saved :class:`Grid` profile to a PDF and return image/ID pairs.
-
-    Performance notes
-    -----------------
-    The original implementation called ``page.get_pixmap(...)`` for every image
-    cell. On multi-page PDFs this becomes expensive because the same page is
-    rasterized repeatedly.
-
-    This implementation renders each page at most once when there are multiple
-    crops on that page, then crops the image cells from that in-memory page
-    image. Text extraction also reuses a single ``TextPage`` per page.
-    """
+    """Apply a saved :class:`Grid` profile to a PDF and return extracted groups."""
 
     def __init__(
         self,
@@ -75,17 +77,12 @@ class Extractor:
     ) -> None:
         self._pdf_path = pdf_path
         self._grid = grid.normalized()
-        # Per-page layout segments override the global grid's lines/pairs for
-        # specific page ranges. The segment with the highest start_page that is
-        # still <= the page being extracted wins.
         self._segments: list[GridSegment] = (
             sorted(segments, key=lambda s: s.start_page) if segments else []
         )
         self._render_dpi = render_dpi
         self._render_scale = render_dpi / 72.0
         self._full_page_render_threshold = max(1, full_page_render_threshold)
-        # Low compression keeps extraction responsive. Images can still be
-        # recompressed later by ``image_processing.compress_image`` before upload.
         self._png_compress_level = max(0, min(9, png_compress_level))
 
     def extract_all_pages(
@@ -93,19 +90,8 @@ class Extractor:
         *,
         progress_callback: Callable[[ExtractionProgress], None] | None = None,
         cancel_check: Callable[[], bool] | None = None,
-    ) -> list[ExtractedPair]:
-        """Extract all configured pairs from every page.
-
-        Parameters
-        ----------
-        progress_callback:
-            Optional callback called once per page. Useful when extraction is
-            run in a background worker and the UI wants a progress indicator.
-        cancel_check:
-            Optional callback. If it returns True between pages, extraction
-            stops cleanly and returns pairs extracted so far.
-        """
-        pairs: list[ExtractedPair] = []
+    ) -> list[ExtractedGroup]:
+        groups: list[ExtractedGroup] = []
         with fitz.open(self._pdf_path) as doc:
             page_count = len(doc)
             for page_index in range(page_count):
@@ -113,132 +99,126 @@ class Extractor:
                     break
 
                 if page_index not in self._grid.omitted_pages:
-                    page = doc[page_index]
-                    pairs.extend(self._extract_page(page))
+                    groups.extend(self._extract_page(doc[page_index]))
 
                 if progress_callback:
                     progress_callback(
                         ExtractionProgress(
                             page_index=page_index,
                             page_count=page_count,
-                            pairs_extracted=len(pairs),
+                            groups_extracted=len(groups),
                         )
                     )
 
-        return pairs
+        return groups
 
     def iter_pages(
         self,
         *,
         cancel_check: Callable[[], bool] | None = None,
-    ) -> Iterable[tuple[ExtractionProgress, list[ExtractedPair]]]:
-        """Yield extracted pairs page-by-page.
-
-        This is useful for future UI updates where the preview can be populated
-        incrementally instead of waiting for the entire PDF to finish.
-        """
-        total_pairs = 0
+    ) -> Iterable[tuple[ExtractionProgress, list[ExtractedGroup]]]:
+        total_groups = 0
         with fitz.open(self._pdf_path) as doc:
             page_count = len(doc)
             for page_index in range(page_count):
                 if cancel_check and cancel_check():
                     break
 
-                page_pairs = []
+                page_groups = []
                 if page_index not in self._grid.omitted_pages:
-                    page_pairs = self._extract_page(doc[page_index])
-                    total_pairs += len(page_pairs)
+                    page_groups = self._extract_page(doc[page_index])
+                    total_groups += len(page_groups)
                 yield (
                     ExtractionProgress(
                         page_index=page_index,
                         page_count=page_count,
-                        pairs_extracted=total_pairs,
+                        groups_extracted=total_groups,
                     ),
-                    page_pairs,
+                    page_groups,
                 )
 
-    # ------------------------------------------------------------------
-    # Internal
-    # ------------------------------------------------------------------
-
-    def _extract_page(self, page: fitz.Page) -> list[ExtractedPair]:
-        resolved_pairs = self._resolve_pairs_for_page(page)
-        if not resolved_pairs:
+    def _extract_page(self, page: fitz.Page) -> list[ExtractedGroup]:
+        resolved_groups = self._resolve_groups_for_page(page)
+        if not resolved_groups:
             return []
 
-        # Build text extraction data once per page instead of once per pair.
         text_page = page.get_textpage()
-
-        pending: list[tuple[str, fitz.Rect]] = []
-        for pair in resolved_pairs:
-            material_id = self._extract_cell_text(page, pair.text_rect, text_page)
-            if material_id:
-                pending.append((material_id, pair.image_rect))
-
-        if not pending:
-            return []
-
-        if len(pending) >= self._full_page_render_threshold:
-            return self._crop_from_full_page_render(page, pending)
-
-        return [
-            ExtractedPair(material_id=material_id, image_bytes=self._crop_clip(page, image_rect))
-            for material_id, image_rect in pending
+        image_fields = [
+            field
+            for group in resolved_groups
+            for field in group.fields
+            if field.definition.field_type == "image"
         ]
+        page_image: Image.Image | None = None
+        if len(image_fields) >= self._full_page_render_threshold:
+            page_image = self._render_full_page(page)
+
+        extracted: list[ExtractedGroup] = []
+        try:
+            for group in resolved_groups:
+                values: dict[str, ExtractedFieldValue] = {}
+                for field in group.fields:
+                    name = field.definition.name
+                    if field.definition.field_type == "image":
+                        image_bytes = self._extract_image_field(page, field.rect, page_image)
+                        values[name] = ExtractedFieldValue("image", image_bytes=image_bytes)
+                    else:
+                        text = self._extract_cell_text(page, field.rect, text_page)
+                        values[name] = ExtractedFieldValue("text", text=text)
+
+                extracted_group = ExtractedGroup(values=values)
+                if extracted_group.has_data:
+                    extracted.append(extracted_group)
+        finally:
+            if page_image is not None:
+                page_image.close()
+
+        return extracted
 
     def _layout_for_page(
         self, page_index: int
-    ) -> tuple[list[int], list[int], list[CellPair]]:
-        """Return the (h_lines, v_lines, pairs) that apply to ``page_index``.
-
-        When per-page segments are present the segment with the highest
-        ``start_page`` that is still <= ``page_index`` wins. Falls back to the
-        global grid when no segments are configured.
-        """
+    ) -> tuple[list[int], list[int], list[CellGroup]]:
         if not self._segments:
             return (
                 self._grid.horizontal_lines,
                 self._grid.vertical_lines,
-                self._grid.pairs,
+                self._grid.groups,
             )
         applicable = [s for s in self._segments if s.start_page <= page_index]
         seg = applicable[-1] if applicable else self._segments[0]
-        return seg.horizontal_lines, seg.vertical_lines, seg.pairs
+        return seg.horizontal_lines, seg.vertical_lines, seg.groups
 
-    def _resolve_pairs_for_page(self, page: fitz.Page) -> list[_ResolvedPair]:
+    def _resolve_groups_for_page(self, page: fitz.Page) -> list[_ResolvedGroup]:
         h_pts, v_pts = self._page_boundaries(page)
         omit_regions = self._omit_regions_for_page(page)
-        _, _, pairs = self._layout_for_page(int(page.number))
+        _, _, groups = self._layout_for_page(int(page.number))
+        fields = self._grid.fields
 
-        resolved: list[_ResolvedPair] = []
-        for pair in pairs:
-            image_rect = self._cell_rect(pair.image_cell, h_pts, v_pts)
-            text_rect = self._cell_rect(pair.text_cell, h_pts, v_pts)
-            if image_rect is None or text_rect is None:
-                continue
+        resolved: list[_ResolvedGroup] = []
+        for group in groups:
+            resolved_fields: list[_ResolvedField] = []
+            skip_group = False
+            for field_def in fields:
+                cells = group.field_cells.get(field_def.name)
+                if not cells:
+                    continue
+                rect = self._field_rect(cells, h_pts, v_pts)
+                if rect is None:
+                    continue
+                rect = page.rect & rect
+                if rect.is_empty:
+                    continue
+                if any(_rects_intersect(rect, omitted) for omitted in omit_regions):
+                    skip_group = True
+                    break
+                resolved_fields.append(_ResolvedField(field_def, rect))
 
-            image_rect = page.rect & image_rect
-            text_rect = page.rect & text_rect
-            if image_rect.is_empty or text_rect.is_empty:
-                continue
-            if any(
-                _rects_intersect(image_rect, omitted) or _rects_intersect(text_rect, omitted)
-                for omitted in omit_regions
-            ):
-                continue
-
-            resolved.append(
-                _ResolvedPair(
-                    source=pair,
-                    image_rect=image_rect,
-                    text_rect=text_rect,
-                )
-            )
+            if not skip_group and resolved_fields:
+                resolved.append(_ResolvedGroup(source=group, fields=resolved_fields))
 
         return resolved
 
     def _omit_regions_for_page(self, page: fitz.Page) -> list[fitz.Rect]:
-        """Return page-specific omit regions converted to PDF points."""
         page_index = int(getattr(page, "number", 0))
         regions: list[fitz.Rect] = []
         for region in self._grid.omit_regions:
@@ -258,7 +238,6 @@ class Extractor:
         return regions
 
     def _page_boundaries(self, page: fitz.Page) -> tuple[list[float], list[float]]:
-        """Return sorted horizontal/vertical boundaries in PDF points."""
         h_lines, v_lines, _ = self._layout_for_page(int(page.number))
 
         h_pts = [0.0]
@@ -269,16 +248,28 @@ class Extractor:
         v_pts.extend(x / _GRID_SCALE for x in v_lines)
         v_pts.append(float(page.rect.width))
 
-        # Clamp profile lines to the current page and remove duplicates. This
-        # prevents invalid or zero-width cells on PDFs with slightly different
-        # page sizes.
         h_pts = _dedupe_sorted(_clamp(v, 0.0, float(page.rect.height)) for v in h_pts)
         v_pts = _dedupe_sorted(_clamp(v, 0.0, float(page.rect.width)) for v in v_pts)
         return h_pts, v_pts
 
     @staticmethod
+    def _field_rect(
+        cells: list[CellAddress],
+        h_pts: list[float],
+        v_pts: list[float],
+    ) -> fitz.Rect | None:
+        rects = [Extractor._cell_rect(cell, h_pts, v_pts) for cell in cells]
+        valid_rects = [rect for rect in rects if rect is not None]
+        if len(valid_rects) != len(cells):
+            return None
+        result = fitz.Rect(valid_rects[0])
+        for rect in valid_rects[1:]:
+            result |= rect
+        return result
+
+    @staticmethod
     def _cell_rect(
-        cell: tuple[int, int],
+        cell: CellAddress,
         h_pts: list[float],
         v_pts: list[float],
     ) -> fitz.Rect | None:
@@ -289,38 +280,30 @@ class Extractor:
 
     @staticmethod
     def _extract_cell_text(page: fitz.Page, rect: fitz.Rect, text_page: fitz.TextPage) -> str:
-        # get_textbox() is faster here because it directly extracts text within
-        # the rectangle from the already-built TextPage.
-        return page.get_textbox(rect, textpage=text_page).strip()
+        return str(page.get_textbox(rect, textpage=text_page)).strip()
 
-    def _crop_from_full_page_render(
-        self,
-        page: fitz.Page,
-        pending: list[tuple[str, fitz.Rect]],
-    ) -> list[ExtractedPair]:
+    def _render_full_page(self, page: fitz.Page) -> Image.Image:
         mat = fitz.Matrix(self._render_scale, self._render_scale)
         pix = page.get_pixmap(matrix=mat, alpha=False)
+        return Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
 
-        # Convert the rendered page once, then crop all swatches from it.
-        page_image = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
+    def _extract_image_field(
+        self,
+        page: fitz.Page,
+        rect: fitz.Rect,
+        page_image: Image.Image | None,
+    ) -> bytes:
+        if page_image is None:
+            return self._crop_clip(page, rect)
 
-        results: list[ExtractedPair] = []
-        for material_id, rect in pending:
-            crop_box = self._rect_to_pixel_box(rect, pix.width, pix.height)
-            if crop_box is None:
-                continue
-
-            crop = page_image.crop(crop_box)
-            results.append(
-                ExtractedPair(
-                    material_id=material_id,
-                    image_bytes=self._encode_png(crop),
-                )
-            )
-
-        # Drop references promptly on large PDFs.
-        page_image.close()
-        return results
+        crop_box = self._rect_to_pixel_box(rect, page_image.width, page_image.height)
+        if crop_box is None:
+            return b""
+        crop = page_image.crop(crop_box)
+        try:
+            return self._encode_png(crop)
+        finally:
+            crop.close()
 
     def _crop_clip(self, page: fitz.Page, rect: fitz.Rect) -> bytes:
         mat = fitz.Matrix(self._render_scale, self._render_scale)

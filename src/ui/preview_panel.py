@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, cast
 
 from PIL import Image as PILImage
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QColor, QIcon, QImage, QPixmap
+from PyQt6.QtGui import QIcon, QImage, QPixmap
 from PyQt6.QtWidgets import (
     QAbstractItemView,
     QFileDialog,
@@ -24,11 +24,10 @@ from PyQt6.QtWidgets import (
 from src.ui import theme
 
 if TYPE_CHECKING:
-    from src.extraction.extractor import ExtractedPair
+    from src.extraction.extractor import ExtractedGroup
 
 
 def _bytes_to_pixmap(image_bytes: bytes) -> QPixmap | None:
-    """Convert raw image bytes (PNG/WebP) to a QPixmap for display."""
     try:
         img = PILImage.open(io.BytesIO(image_bytes)).convert("RGB")
         data = img.tobytes("raw", "RGB")
@@ -38,27 +37,15 @@ def _bytes_to_pixmap(image_bytes: bytes) -> QPixmap | None:
         return None
 
 
-_DUPLICATE_BG = QColor(120, 78, 8, 90)
-_THUMB_BG = QColor(15, 23, 42)
-
-
 class PreviewPanel(QWidget):
-    """Shows extracted (swatch thumbnail, material ID) pairs for review.
-
-    Duplicate rows are tinted amber. Users can deselect rows before upload.
-    Each row's Status column updates in place during upload; a toast summarizes
-    the final result.
-    """
+    """Shows extracted groups for review and Excel export."""
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setObjectName("previewPanel")
-        self._pairs: list[ExtractedPair] = []
+        self._groups: list[ExtractedGroup] = []
+        self._field_names: list[str] = []
         self._build_ui()
-
-    # ------------------------------------------------------------------
-    # Layout
-    # ------------------------------------------------------------------
 
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)
@@ -73,25 +60,22 @@ class PreviewPanel(QWidget):
         title.setObjectName("panelTitle")
         header.addWidget(title)
 
-        self._summary = QLabel("Run extraction to review detected swatches and IDs.")
+        self._summary = QLabel("Run extraction to review detected groups.")
         self._summary.setObjectName("panelSummary")
         header.addWidget(self._summary)
         layout.addLayout(header)
 
-        self._table = QTableWidget(0, 3)
-        self._table.setHorizontalHeaderLabels(["Swatch", "Material ID", "Status"])
+        self._table = QTableWidget(0, 0)
         horizontal_header = self._table.horizontalHeader()
         if horizontal_header is not None:
-            horizontal_header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
-        self._table.setColumnWidth(0, 92)
-        self._table.setColumnWidth(2, 96)
+            horizontal_header.setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
+            horizontal_header.setStretchLastSection(True)
         self._table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self._table.setSelectionMode(QAbstractItemView.SelectionMode.MultiSelection)
         self._table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self._table.setAlternatingRowColors(True)
         self._table.setShowGrid(False)
         self._table.setFrameShape(QFrame.Shape.NoFrame)
-        self._table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self._table.setCornerButtonEnabled(False)
         vertical_header = self._table.verticalHeader()
         if vertical_header is not None:
@@ -110,85 +94,63 @@ class PreviewPanel(QWidget):
         self._export_btn.setToolTip("Export selected rows to an Excel workbook.")
         self._export_btn.clicked.connect(self._on_export_excel)
         btn_row.addWidget(self._export_btn)
-        self._upload_btn = QPushButton(QIcon(theme.icon_path("upload.svg")), "  Upload Selected")
-        self._upload_btn.setProperty("primary", True)
-        self._upload_btn.setToolTip("Upload selected rows; deselect rows you do not want to send.")
-        self._upload_btn.clicked.connect(self._on_upload)
         btn_row.addStretch()
-        btn_row.addWidget(self._upload_btn)
         layout.addLayout(btn_row)
 
-    # ------------------------------------------------------------------
-    # Public API
-    # ------------------------------------------------------------------
-
-    def load(self, pairs: list[ExtractedPair]) -> None:
-        self._pairs = pairs
+    def load(self, groups: list[ExtractedGroup]) -> None:
+        self._groups = groups
+        self._field_names = _field_names(groups)
+        self._table.clear()
         self._table.setRowCount(0)
+        self._table.setColumnCount(len(self._field_names))
+        self._table.setHorizontalHeaderLabels(self._field_names)
 
-        duplicates = 0
-        for pair in pairs:
+        for group in groups:
             row = self._table.rowCount()
             self._table.insertRow(row)
 
-            thumb_label = QLabel()
-            thumb_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            thumb_label.setStyleSheet(
-                f"background-color: {theme.BG_PANEL}; border-radius: 7px; padding: 4px;"
-            )
-            pixmap = _bytes_to_pixmap(pair.image_bytes)
-            if pixmap:
-                thumb_label.setPixmap(
-                    pixmap.scaled(
-                        64,
-                        64,
-                        Qt.AspectRatioMode.KeepAspectRatio,
-                        Qt.TransformationMode.SmoothTransformation,
+            for column, field_name in enumerate(self._field_names):
+                value = group.values.get(field_name)
+                if value is None:
+                    self._table.setItem(row, column, QTableWidgetItem(""))
+                    continue
+
+                if value.field_type == "image":
+                    thumb_label = QLabel()
+                    thumb_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+                    thumb_label.setStyleSheet(
+                        f"background-color: {theme.BG_PANEL}; border-radius: 7px; padding: 4px;"
                     )
-                )
-            self._table.setCellWidget(row, 0, thumb_label)
-
-            id_item = QTableWidgetItem(pair.material_id)
-            self._table.setItem(row, 1, id_item)
-
-            if pair.is_duplicate:
-                status = "Update"
-                duplicates += 1
-                id_item.setBackground(_DUPLICATE_BG)
-            else:
-                status = "New"
-
-            status_item = QTableWidgetItem(status)
-            status_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-            if pair.is_duplicate:
-                status_item.setForeground(QColor(theme.WARNING))
-                status_item.setBackground(_DUPLICATE_BG)
-            else:
-                status_item.setForeground(QColor(theme.TEXT_MUTED))
-            self._table.setItem(row, 2, status_item)
+                    pixmap = _bytes_to_pixmap(value.image_bytes)
+                    if pixmap:
+                        thumb_label.setPixmap(
+                            pixmap.scaled(
+                                64,
+                                64,
+                                Qt.AspectRatioMode.KeepAspectRatio,
+                                Qt.TransformationMode.SmoothTransformation,
+                            )
+                        )
+                    self._table.setCellWidget(row, column, thumb_label)
+                    self._table.setItem(row, column, QTableWidgetItem(""))
+                else:
+                    self._table.setItem(row, column, QTableWidgetItem(value.text))
 
             self._table.setRowHeight(row, 74)
             self._table.selectRow(row)
 
-        new_count = len(pairs) - duplicates
-        self._summary.setText(
-            f"{len(pairs)} pairs found • {new_count} new • {duplicates} update existing records"
-        )
-
-    # ------------------------------------------------------------------
-    # Excel export
-    # ------------------------------------------------------------------
+        self._summary.setText(f"{len(groups)} groups found")
 
     def _on_export_excel(self) -> None:
         selected_rows = self._selected_rows()
-        pairs = [self._pairs[row] for row in selected_rows if row < len(self._pairs)]
-        if not pairs:
+        groups = [self._groups[row] for row in selected_rows if row < len(self._groups)]
+        if not groups:
             self._show_toast("Select at least one row to export.", success=False)
             return
 
         manufacturer, ok = QInputDialog.getText(
             self,
-            "Export Swatches",
+            "Export Extracted Data",
             "Manufacturer:",
         )
         if not ok:
@@ -196,7 +158,7 @@ class PreviewPanel(QWidget):
 
         category, ok = QInputDialog.getText(
             self,
-            "Export Swatches",
+            "Export Extracted Data",
             "Category:",
         )
         if not ok:
@@ -204,7 +166,7 @@ class PreviewPanel(QWidget):
 
         path, _ = QFileDialog.getSaveFileName(
             self,
-            "Export Swatches to Excel",
+            "Export Extracted Data to Excel",
             "",
             "Excel Workbook (*.xlsx)",
         )
@@ -217,7 +179,7 @@ class PreviewPanel(QWidget):
         try:
             export_swatch_workbook(
                 path,
-                pairs,
+                groups,
                 manufacturer=manufacturer.strip(),
                 category=category.strip(),
             )
@@ -226,71 +188,8 @@ class PreviewPanel(QWidget):
             self._show_toast(f"Excel export failed: {detail}", success=False)
             return
 
-        self._summary.setText(f"Exported {len(pairs)} rows to Excel.")
-        self._show_toast(f"Exported {len(pairs)} rows to Excel.", success=True)
-
-    # ------------------------------------------------------------------
-    # Upload
-    # ------------------------------------------------------------------
-
-    def _on_upload(self) -> None:
-        selected_rows = self._selected_rows()
-        to_upload = [(r, self._pairs[r]) for r in selected_rows if r < len(self._pairs)]
-        if not to_upload:
-            self._show_toast("Select at least one row to upload.", success=False)
-            return
-
-        from src.extraction.image_processing import compress_image
-        from src.upload.worker_client import WorkerClient
-
-        self._upload_btn.setEnabled(False)
-        worker = WorkerClient()
-        inserted = updated = failed = 0
-        last_error: str = ""
-
-        for row, pair in to_upload:
-            self._set_row_status(row, "Uploading…", theme.TEXT_MUTED)
-            try:
-                compressed = compress_image(pair.image_bytes)
-                was_updated = worker.upload(compressed, pair.material_id)
-                if was_updated:
-                    updated += 1
-                    self._set_row_status(row, "✓ Updated", theme.SUCCESS)
-                else:
-                    inserted += 1
-                    self._set_row_status(row, "✓ Inserted", theme.SUCCESS)
-            except Exception as exc:
-                failed += 1
-                last_error = str(exc)
-                print(f"Upload error for {pair.material_id!r}: {exc}", flush=True)
-                self._set_row_status(row, "✕ Failed", theme.ERROR)
-
-        self._upload_btn.setEnabled(True)
-
-        total = inserted + updated
-        msg = f"{total} uploaded ({inserted} new, {updated} updated)"
-        if failed:
-            msg = (
-                f"{failed} failed — {last_error}"
-                if total == 0
-                else f"{total} uploaded, {failed} failed — {last_error}"
-            )
-        self._summary.setText(msg)
-
-        if failed == 0:
-            self._show_toast(msg, success=True)
-        else:
-            detail = last_error[:80] + "…" if len(last_error) > 80 else last_error
-            self._show_toast(f"{failed} failed: {detail}", success=False)
-
-    def _set_row_status(self, row: int, text: str, color: str) -> None:
-        item = self._table.item(row, 2)
-        if item is None:
-            item = QTableWidgetItem()
-            item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-            self._table.setItem(row, 2, item)
-        item.setText(text)
-        item.setForeground(QColor(color))
+        self._summary.setText(f"Exported {len(groups)} rows to Excel.")
+        self._show_toast(f"Exported {len(groups)} rows to Excel.", success=True)
 
     def _selected_rows(self) -> list[int]:
         return sorted({idx.row() for idx in self._table.selectedIndexes()})
@@ -300,3 +199,11 @@ class PreviewPanel(QWidget):
 
         Toast.show_in(cast(QWidget, self.window()), message, success=success)
 
+
+def _field_names(groups: list[ExtractedGroup]) -> list[str]:
+    names: list[str] = []
+    for group in groups:
+        for name in group.values:
+            if name not in names:
+                names.append(name)
+    return names

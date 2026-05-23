@@ -7,13 +7,13 @@ A desktop tool for importing material finish catalogs from PDF files into the FF
 ## Features
 
 - **PDF viewer** — open and navigate any PDF catalog inside the app
-- **Grid editor** — draw horizontal and vertical lines over the first page to divide it into cells; explicitly pair image cells with text cells containing material IDs
-- **Interactive pairing** — enter *Pair Cells* mode, click an image cell then a text cell to form pairs; supports complex layouts where text positions vary per row
+- **Grid editor** — draw horizontal and vertical lines over the page, define typed fields, and group cells for extraction
+- **Interactive grouping** — define typed fields, then click cells in field order to build extracted groups with any number of columns
 - **Named profiles** — save a grid layout under a name (e.g. "Supplier A – 2 column"); reload it instantly for future PDFs from the same supplier
 - **Batch extraction** — the page-1 grid is applied automatically to every subsequent page; extraction runs asynchronously to keep the UI responsive
 - **Page omission** — skip full pages or page-specific rectangular regions that contain diagrams, renderings, or other non-extractable content
 - **Progress & cancellation** — monitor extraction progress and cancel long-running jobs
-- **Preview panel** — review all extracted (thumbnail, ID) pairs before committing; duplicates are highlighted
+- **Preview panel** — review extracted groups and choose which rows to export
 - **Excel export** — save extracted swatches to an Excel workbook with manufacturer/category metadata
 - **Intelligent upload** — create materials if needed, upload swatch images via the Cloudflare Worker API to R2 + Neon
 
@@ -51,13 +51,13 @@ pdf-finish-extractor/
     ├── ui/
     │   ├── main_window.py      # Top-level window, toolbar, extraction worker
     │   ├── pdf_viewer.py       # PDF canvas widget (PyMuPDF → QPixmap)
-    │   ├── grid_editor.py      # Line drawing, cell pairing, page nav, omit controls
+    │   ├── grid_editor.py      # Line drawing, field grouping, page nav, omit controls
     │   ├── preview_panel.py    # Extraction review (thumbnails + IDs), export, upload
     │   ├── profile_manager.py  # Save / load / select named profiles
     │   ├── theme.py            # Global QSS stylesheet & design tokens
     │   └── toast.py            # Auto-dismiss overlay notifications
     ├── extraction/
-    │   ├── grid.py             # Grid, CellPair, OmitRegion data models
+    │   ├── grid.py             # Grid, FieldDefinition, CellGroup, OmitRegion models
     │   ├── extractor.py        # PyMuPDF extraction with progress/cancel/omit logic
     │   └── image_processing.py # WebP compression via Pillow
     ├── exporting/
@@ -131,9 +131,9 @@ Use **File → Open** to load a catalog PDF. The first page renders in the viewe
 
 1. Use **◀ Previous** / **Next ▶** to navigate pages if needed. Mark pages to skip extraction with **Omit Page** toggle.
 2. Click **+ H Line** or **+ V Line** and drag lines across the page to divide it into cells.
-3. Click **Pair Cells** mode, then click an image cell (highlighted in orange) and the text cell containing its material ID to form a pair.
+3. Open **Fields**, define each field name, type, click count, and order.
 4. (Optional) Use **Draw Ignore Area** to mark page-specific regions (diagrams, renderings, blank sections) that should not be extracted.
-5. Repeat pairing for each image in the grid. Right-click a highlighted cell to remove its pair.
+5. Click **Group Cells** mode, then click cells in field order until each group is complete. Right-click a highlighted cell to remove its group.
 
 ### Step 3 — Save a profile (optional but recommended)
 
@@ -145,29 +145,17 @@ Click **▶ Extract All Pages**. The app:
 1. Applies the grid to every page
 2. Runs extraction asynchronously on a background thread (UI remains responsive)
 3. Emits progress updates as each page completes
-4. Opens the **Preview Panel** showing all extracted pairs
+4. Opens the **Preview Panel** showing all extracted groups
 
 In the preview:
-- Rows with a material ID already in the database are **highlighted amber** — they will be updated.
 - Deselect any row you want to skip.
 
-### Step 5 — Export or Upload
+### Step 5 — Export
 
-**Option A — Export to Excel:**
 Click **Export Excel**. Provide a manufacturer name and category. The app writes an Excel workbook with:
 - Manufacturer and category metadata
-- Column headers: ID, Image
-- One row per extracted swatch with material ID and embedded thumbnail
-
-**Option B — Upload to Database:**
-Click **Upload Selected**. The app:
-
-1. For each row, ensures the material exists in the database (creates if new)
-2. Compresses each swatch to WebP (max 1920 px, 85% quality)
-3. POSTs the image to the Cloudflare Worker API
-4. Worker stores the image in R2 and upserts the record in Neon
-
-Row-by-row status updates show progress. A toast notification summarizes the final result (inserted vs updated vs failed).
+- Column headers from the field recipe
+- One row per extracted group, with text fields as cell text and image fields as embedded images
 
 ---
 
@@ -180,9 +168,13 @@ Profiles are plain JSON stored in `profiles/`. You can edit them directly.
   "name": "Supplier A – 2col",
   "horizontal_lines": [120, 240, 360, 480],
   "vertical_lines": [30, 180, 330, 480],
-  "pairs": [
-    {"image_cell": [0, 0], "text_cell": [0, 1]},
-    {"image_cell": [0, 2], "text_cell": [0, 3]}
+  "fields": [
+    {"name": "swatch", "type": "image", "click_count": 1},
+    {"name": "material_id", "type": "text", "click_count": 1}
+  ],
+  "groups": [
+    {"field_cells": {"swatch": [[0, 0]], "material_id": [[0, 1]]}},
+    {"field_cells": {"swatch": [[0, 2]], "material_id": [[0, 3]]}}
   ],
   "omitted_pages": [2, 5],
   "omit_regions": [
@@ -192,7 +184,8 @@ Profiles are plain JSON stored in `profiles/`. You can edit them directly.
 ```
 
 - `horizontal_lines` and `vertical_lines` are y/x coordinates in **150-DPI rendered pixel space** (portable across machines using the same DPI constant)
-- `pairs` lists explicit image→text cell mappings as `[row, col]` tuples (supports complex layouts where text positions vary per row)
+- `fields` defines the ordered field recipe, including field names, types, and click counts
+- `groups` maps each field name to one or more selected cells as `[row, col]` tuples
 - `omitted_pages` (optional) lists zero-based page indices to skip entirely (e.g. cover pages, blank pages)
 - `omit_regions` (optional) lists page-specific rectangular areas to ignore, as `{page_index, rect: [x0, y0, x1, y1]}` (useful for diagrams or empty sections)
 
@@ -207,7 +200,7 @@ See [docs/MATERIAL_SWATCH_UPLOAD_GUIDE.md](docs/MATERIAL_SWATCH_UPLOAD_GUIDE.md)
 2. **Upload swatch image** — `POST /api/v1/images?entity_type=material&entity_id={materialUUID}` with WebP bytes
 3. **Worker handles R2 + Neon** — stores at `users/{FIREBASE_UID}/projects/{PROJECT_ID}/materials/{materialId}/{imageId}.webp` and upserts the database record
 
-Duplicate detection queries `image_assets` by `alt_text` (material ID) to highlight existing records before upload.
+Upload code remains in the repository for later reintegration, but the current UI focuses on Excel export.
 
 ---
 

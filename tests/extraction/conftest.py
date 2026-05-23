@@ -49,7 +49,7 @@ def _mid(a: float, b: float) -> float:
     return (a + b) / 2
 
 
-def add_right_pair_rows(
+def add_right_group_rows(
     page: fitz.Page,
     materials: list[tuple[str, tuple[float, float, float]]],
 ) -> None:
@@ -72,7 +72,7 @@ def add_right_pair_rows(
         )
 
 
-def add_below_pair_rows(
+def add_below_group_row(
     page: fitz.Page,
     material: tuple[str, tuple[float, float, float]],
 ) -> None:
@@ -94,11 +94,11 @@ def add_below_pair_rows(
 
 @pytest.fixture(scope="session")
 def single_page_pdf(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    """One page, RIGHT pairing — MAT-001 (row 0) and MAT-002 (row 1)."""
+    """One page, right-side text groups — MAT-001 (row 0) and MAT-002 (row 1)."""
     path = tmp_path_factory.mktemp("fixtures") / "single_page.pdf"
     doc = fitz.open()
     page = doc.new_page(width=PAGE_W, height=PAGE_H)
-    add_right_pair_rows(page, [MATERIAL_A, MATERIAL_B])
+    add_right_group_rows(page, [MATERIAL_A, MATERIAL_B])
     doc.save(str(path))
     doc.close()
     return path
@@ -106,12 +106,12 @@ def single_page_pdf(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
 @pytest.fixture(scope="session")
 def multi_page_pdf(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    """Two identical pages, RIGHT pairing — 4 pairs total."""
+    """Two identical pages, right-side text groups — 4 groups total."""
     path = tmp_path_factory.mktemp("fixtures") / "multi_page.pdf"
     doc = fitz.open()
     for _ in range(2):
         page = doc.new_page(width=PAGE_W, height=PAGE_H)
-        add_right_pair_rows(page, [MATERIAL_A, MATERIAL_B])
+        add_right_group_rows(page, [MATERIAL_A, MATERIAL_B])
     doc.save(str(path))
     doc.close()
     return path
@@ -132,12 +132,12 @@ def empty_text_pdf(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
 
 @pytest.fixture(scope="session")
-def below_pair_pdf(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    """One page, BELOW pairing — image top-left, text bottom-left."""
-    path = tmp_path_factory.mktemp("fixtures") / "below_pair.pdf"
+def below_group_pdf(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """One page, below-text group — image top-left, text bottom-left."""
+    path = tmp_path_factory.mktemp("fixtures") / "below_group.pdf"
     doc = fitz.open()
     page = doc.new_page(width=PAGE_W, height=PAGE_H)
-    add_below_pair_rows(page, MATERIAL_A)
+    add_below_group_row(page, MATERIAL_A)
     doc.save(str(path))
     doc.close()
     return path

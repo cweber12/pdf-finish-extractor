@@ -9,6 +9,7 @@ from PyQt6.QtWidgets import (
     QLabel,
     QMainWindow,
     QMenu,
+    QMessageBox,
     QProgressBar,
     QPushButton,
     QSizePolicy,
@@ -16,6 +17,7 @@ from PyQt6.QtWidgets import (
     QToolButton,
     QVBoxLayout,
     QWidget,
+    QWidgetAction,
 )
 
 from src.extraction.extractor import ExtractionProgress, Extractor
@@ -27,6 +29,45 @@ from src.ui.profile_manager import ProfileManager
 from src.ui.toast import Toast
 
 
+class _LayoutMenuRow(QWidget):
+    """A row in the Grid Layouts dropdown: name on the left, delete (×) on the right."""
+
+    applyRequested = pyqtSignal(str)
+    deleteRequested = pyqtSignal(str)
+
+    def __init__(self, name: str, is_active: bool, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._name = name
+        self.setObjectName("layoutMenuRow")
+        if is_active:
+            self.setProperty("active", True)
+
+        row = QHBoxLayout(self)
+        row.setContentsMargins(6, 2, 6, 2)
+        row.setSpacing(6)
+
+        self._apply_btn = QPushButton(name)
+        self._apply_btn.setObjectName("layoutApplyBtn")
+        if is_active:
+            self._apply_btn.setProperty("active", True)
+        self._apply_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._apply_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self._apply_btn.setToolTip(f"Apply layout '{name}' to the current PDF.")
+        self._apply_btn.clicked.connect(lambda: self.applyRequested.emit(self._name))
+        row.addWidget(self._apply_btn, stretch=1)
+
+        self._delete_btn = QToolButton()
+        self._delete_btn.setObjectName("layoutDeleteBtn")
+        self._delete_btn.setIcon(QIcon(theme.icon_path("trash.svg")))
+        self._delete_btn.setIconSize(QSize(14, 14))
+        self._delete_btn.setToolTip(f"Delete the saved layout '{name}'.")
+        self._delete_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._delete_btn.setAutoRaise(True)
+        self._delete_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self._delete_btn.clicked.connect(lambda: self.deleteRequested.emit(self._name))
+        row.addWidget(self._delete_btn)
+
+
 class _ExtractionWorker(QObject):
     """Runs PDF extraction off the Qt main thread.
 
@@ -34,8 +75,8 @@ class _ExtractionWorker(QObject):
     to report progress and completion back to ``MainWindow`` safely.
     """
 
-    progress = pyqtSignal(int, int, int)  # page_index, page_count, pairs_extracted
-    finished = pyqtSignal(object, bool)   # list[ExtractedPair], was_cancelled
+    progress = pyqtSignal(int, int, int)  # page_index, page_count, groups_extracted
+    finished = pyqtSignal(object, bool)   # list[ExtractedGroup], was_cancelled
     failed = pyqtSignal(str)
 
     def __init__(self, pdf_path: str, profile: Grid, segments: list[GridSegment]) -> None:
@@ -53,15 +94,15 @@ class _ExtractionWorker(QObject):
                 self.progress.emit(
                     progress.page_index,
                     progress.page_count,
-                    progress.pairs_extracted,
+                    progress.groups_extracted,
                 )
 
             extractor = Extractor(self._pdf_path, self._profile, segments=self._segments or None)
-            pairs = extractor.extract_all_pages(
+            groups = extractor.extract_all_pages(
                 progress_callback=on_progress,
                 cancel_check=lambda: self._cancel_requested,
             )
-            self.finished.emit(pairs, self._cancel_requested)
+            self.finished.emit(groups, self._cancel_requested)
         except Exception as exc:  # noqa: BLE001 - user-facing extraction failure
             self.failed.emit(str(exc))
 
@@ -176,7 +217,7 @@ class MainWindow(QMainWindow):
         self._extract_btn = QPushButton(QIcon(theme.icon_path("extract.svg")), "  Extract")
         self._extract_btn.setObjectName("extractButton")
         self._extract_btn.setIconSize(QSize(16, 16))
-        self._extract_btn.setToolTip("Run extraction using the current grid and pairings.")
+        self._extract_btn.setToolTip("Run extraction using the current grid groups.")
         self._extract_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._extract_btn.clicked.connect(self._on_extract)
         layout.addWidget(self._extract_btn)
@@ -339,28 +380,28 @@ class MainWindow(QMainWindow):
         self._set_status("Cancelling extraction after the current page…")
         self._extraction_worker.cancel()
 
-    def _on_extraction_progress(self, page_index: int, page_count: int, pairs_extracted: int) -> None:
+    def _on_extraction_progress(self, page_index: int, page_count: int, groups_extracted: int) -> None:
         completed = page_index + 1
         pct = int((completed / page_count) * 100) if page_count else 0
         self._progress_bar.setValue(max(0, min(100, pct)))
         self._set_status(
-            f"Extracting page {completed}/{page_count} • {pairs_extracted} pairs found"
+            f"Extracting page {completed}/{page_count} • {groups_extracted} groups found"
         )
 
-    def _on_extraction_finished(self, pairs: object, was_cancelled: bool) -> None:
-        extracted_pairs = list(pairs) if isinstance(pairs, list) else []
-        self._preview_panel.load(extracted_pairs)
-        self._preview_panel.setVisible(bool(extracted_pairs))
-        if extracted_pairs:
+    def _on_extraction_finished(self, groups: object, was_cancelled: bool) -> None:
+        extracted_groups = list(groups) if isinstance(groups, list) else []
+        self._preview_panel.load(extracted_groups)
+        self._preview_panel.setVisible(bool(extracted_groups))
+        if extracted_groups:
             self._splitter.setSizes([900, 520])
 
         self._set_extraction_running(False)
         if was_cancelled:
-            msg = f"Extraction cancelled: {len(extracted_pairs)} pairs found."
+            msg = f"Extraction cancelled: {len(extracted_groups)} groups found."
             self._set_status(msg)
             Toast.show_in(self.window(), msg, success=False)
         else:
-            msg = f"Extraction complete: {len(extracted_pairs)} pairs found."
+            msg = f"Extraction complete: {len(extracted_groups)} groups found."
             self._set_status(msg)
             Toast.show_in(self.window(), msg, success=True)
 
@@ -387,19 +428,71 @@ class MainWindow(QMainWindow):
         profile_names = self._profile_manager.list_profiles()
 
         if not profile_names:
-            empty_action = QAction("No saved profiles yet", self)
+            empty_action = QAction("No saved layouts yet", self)
             empty_action.setEnabled(False)
             self._profile_menu.addAction(empty_action)
         else:
             for name in profile_names:
-                action = QAction(name, self)
-                action.triggered.connect(lambda _checked=False, n=name: self._on_profile_selected(n))
+                row = _LayoutMenuRow(
+                    name,
+                    is_active=(name == self._selected_profile_name),
+                    parent=self._profile_menu,
+                )
+                row.applyRequested.connect(self._on_profile_row_apply)
+                row.deleteRequested.connect(self._on_profile_row_delete)
+                action = QWidgetAction(self._profile_menu)
+                action.setDefaultWidget(row)
                 self._profile_menu.addAction(action)
 
         self._profile_menu.addSeparator()
-        save_action = QAction("Save current grid as profile…", self)
+        save_action = QAction(
+            QIcon(theme.icon_path("save.svg")),
+            "Save current grid as layout…",
+            self,
+        )
         save_action.triggered.connect(self._on_save_profile)
         self._profile_menu.addAction(save_action)
+
+    def _on_profile_row_apply(self, name: str) -> None:
+        self._profile_menu.close()
+        self._on_profile_selected(name)
+
+    def _on_profile_row_delete(self, name: str) -> None:
+        self._profile_menu.close()
+        self._on_delete_profile(name)
+
+    def _on_delete_profile(self, name: str) -> None:
+        if self._is_extracting():
+            Toast.show_in(
+                self.window(),
+                "Cancel extraction before deleting a layout.",
+                success=False,
+            )
+            return
+
+        confirm = QMessageBox(self)
+        confirm.setWindowTitle("Delete layout")
+        confirm.setIcon(QMessageBox.Icon.Warning)
+        confirm.setText(f"Delete the saved layout '{name}'?")
+        confirm.setInformativeText("This cannot be undone.")
+        confirm.setStandardButtons(
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel
+        )
+        confirm.setDefaultButton(QMessageBox.StandardButton.Cancel)
+        if confirm.exec() != QMessageBox.StandardButton.Yes:
+            return
+
+        if not self._profile_manager.delete(name):
+            Toast.show_in(self.window(), f"Layout not found: {name}", success=False)
+            return
+
+        if self._selected_profile_name == name:
+            self._selected_profile_name = None
+            self._set_selected_layout_label(None)
+
+        self._refresh_profiles()
+        self._set_status(f"Layout deleted: {name}")
+        Toast.show_in(self.window(), f"Layout deleted: {name}", success=True)
 
     # ------------------------------------------------------------------
     # Extraction worker management

@@ -6,8 +6,8 @@ idle     – arrow cursor; drag existing lines by clicking near the line or its
            handle; right-click near a line to remove it.
 add_h    – crosshair cursor; click-drag to place a horizontal line.
 add_v    – crosshair cursor; click-drag to place a vertical line.
-pairing  – click an image cell then a text cell to create a pair;
-           right-click on a cell to remove any pair that contains it.
+grouping – click cells in the field recipe order to create a group;
+           right-click on a cell to remove any group that contains it.
 omit     – click-drag to mark a page-specific area that should be skipped
            during extraction; right-click an omitted region to remove it.
 
@@ -41,18 +41,32 @@ from PyQt6.QtGui import (
     QWheelEvent,
 )
 from PyQt6.QtWidgets import (
+    QComboBox,
+    QDialog,
+    QDialogButtonBox,
     QFrame,
     QGraphicsDropShadowEffect,
     QHBoxLayout,
     QLabel,
+    QMessageBox,
     QPushButton,
+    QSpinBox,
     QStackedWidget,
+    QTableWidget,
+    QTableWidgetItem,
     QToolButton,
     QVBoxLayout,
     QWidget,
 )
 
-from src.extraction.grid import CellPair, Grid, GridSegment, OmitRegion
+from src.extraction.grid import (
+    CellGroup,
+    FieldDefinition,
+    Grid,
+    GridSegment,
+    OmitRegion,
+    cells_form_rectangle,
+)
 from src.ui import theme
 from src.ui.pdf_viewer import PDFViewer
 
@@ -88,12 +102,12 @@ _OMIT_BORDER = QColor(theme.WARNING)
 _OMIT_PREVIEW_FILL = QColor(245, 158, 11, 48)
 _OMITTED_PAGE_FILL = QColor(15, 23, 42, 122)
 
-# Per-pair fill colours: (image_cell_fill, text_cell_fill)
-_PAIR_FILLS: list[tuple[QColor, QColor]] = [
-    (QColor(56, 189, 248, 48), QColor(34, 197, 94, 44)),
-    (QColor(168, 85, 247, 45), QColor(20, 184, 166, 45)),
-    (QColor(251, 146, 60, 48), QColor(244, 63, 94, 42)),
-    (QColor(96, 165, 250, 46), QColor(250, 204, 21, 38)),
+_GROUP_FILLS: list[QColor] = [
+    QColor(56, 189, 248, 48),
+    QColor(34, 197, 94, 44),
+    QColor(168, 85, 247, 45),
+    QColor(251, 146, 60, 48),
+    QColor(250, 204, 21, 38),
 ]
 
 
@@ -210,26 +224,24 @@ class _OverlayWidget(QWidget):
 
         current_page = e.current_page_index()
 
-        # --- Cell fills: paired cells ---
-        for idx, pair in enumerate(e._pairs):
-            fills = _PAIR_FILLS[idx % len(_PAIR_FILLS)]
-            for cell, fill in ((pair.image_cell, fills[0]), (pair.text_cell, fills[1])):
+        # --- Cell fills: grouped cells ---
+        for idx, group in enumerate(e._groups):
+            fill = _GROUP_FILLS[idx % len(_GROUP_FILLS)]
+            for cell in group.cells():
                 r = _cell_rect_display(cell, h_d, v_d)
                 if r:
                     painter.fillRect(r, fill)
 
-        # --- Pending image cell ---
-        if e._pending_image is not None:
-            r = _cell_rect_display(e._pending_image, h_d, v_d)
+        # --- Pending group cells ---
+        for cell in e._pending_group_cells:
+            r = _cell_rect_display(cell, h_d, v_d)
             if r:
                 painter.fillRect(r, _PENDING_FILL)
 
-        # --- Hovered cell (pairing mode only) ---
+        # --- Hovered cell (grouping mode only) ---
         hc = e._hovered_cell
-        is_unpaired = hc is not None and not any(
-            hc in (p.image_cell, p.text_cell) for p in e._pairs
-        )
-        if e._mode == "pairing" and is_unpaired and hc != e._pending_image:
+        is_ungrouped = hc is not None and not any(hc in group.cells() for group in e._groups)
+        if e._mode == "grouping" and is_ungrouped and hc not in e._pending_group_cells:
             r = _cell_rect_display(hc, h_d, v_d)
             if r:
                 painter.fillRect(r, _HOVER_FILL)
@@ -310,10 +322,10 @@ class _OverlayWidget(QWidget):
                 painter.setPen(pen)
                 painter.drawRect(r.adjusted(0, 0, -1, -1))
 
-        # --- Pair badges ---
-        for idx, pair in enumerate(e._pairs):
+        # --- Group badges ---
+        for idx, group in enumerate(e._groups):
             badge = str(idx + 1)
-            for cell in (pair.image_cell, pair.text_cell):
+            for cell in group.cells():
                 r = _cell_rect_display(cell, h_d, v_d)
                 if r:
                     _draw_badge(painter, r.center().x(), r.center().y(), badge)
@@ -547,6 +559,117 @@ def _make_status_chip(initial: str = "") -> QLabel:
     return label
 
 
+class _FieldRecipeDialog(QDialog):
+    """Dialog for editing the ordered extraction field recipe."""
+
+    def __init__(self, fields: list[FieldDefinition], parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Fields")
+        self._table = QTableWidget(0, 3)
+        self._table.setHorizontalHeaderLabels(["Name", "Type", "Clicks"])
+        header = self._table.horizontalHeader()
+        if header is not None:
+            header.setStretchLastSection(True)
+        self._table.verticalHeader().setVisible(False)
+        self._table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self._table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
+
+        for field_def in fields:
+            self._append_row(field_def)
+
+        add_text = QPushButton("Add Text")
+        add_text.clicked.connect(lambda: self._append_row(FieldDefinition("field", "text", 1)))
+        add_image = QPushButton("Add Image")
+        add_image.clicked.connect(lambda: self._append_row(FieldDefinition("image", "image", 1)))
+        remove = QPushButton("Remove")
+        remove.clicked.connect(self._remove_selected)
+        up = QPushButton("Up")
+        up.clicked.connect(lambda: self._move_selected(-1))
+        down = QPushButton("Down")
+        down.clicked.connect(lambda: self._move_selected(1))
+
+        tools = QHBoxLayout()
+        tools.addWidget(add_text)
+        tools.addWidget(add_image)
+        tools.addWidget(remove)
+        tools.addStretch()
+        tools.addWidget(up)
+        tools.addWidget(down)
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+
+        layout = QVBoxLayout(self)
+        layout.addWidget(self._table)
+        layout.addLayout(tools)
+        layout.addWidget(buttons)
+        self.resize(520, 320)
+
+    def fields(self) -> list[FieldDefinition]:
+        result: list[FieldDefinition] = []
+        seen: set[str] = set()
+        for row in range(self._table.rowCount()):
+            name_item = self._table.item(row, 0)
+            name = name_item.text().strip() if name_item else ""
+            if not name or name in seen:
+                continue
+            type_widget = self._table.cellWidget(row, 1)
+            click_widget = self._table.cellWidget(row, 2)
+            field_type = "text"
+            if isinstance(type_widget, QComboBox):
+                field_type = type_widget.currentText().lower()
+            click_count = 1
+            if isinstance(click_widget, QSpinBox):
+                click_count = click_widget.value()
+            seen.add(name)
+            result.append(FieldDefinition(name=name, field_type=field_type, click_count=click_count))  # type: ignore[arg-type]
+        return result
+
+    def _append_row(self, field_def: FieldDefinition) -> None:
+        row = self._table.rowCount()
+        self._table.insertRow(row)
+        self._table.setItem(row, 0, QTableWidgetItem(field_def.name))
+
+        type_box = QComboBox()
+        type_box.addItems(["text", "image"])
+        type_box.setCurrentText(field_def.field_type)
+        self._table.setCellWidget(row, 1, type_box)
+
+        clicks = QSpinBox()
+        clicks.setRange(1, 20)
+        clicks.setValue(max(1, field_def.click_count))
+        self._table.setCellWidget(row, 2, clicks)
+        self._table.selectRow(row)
+
+    def _remove_selected(self) -> None:
+        row = self._selected_row()
+        if row is not None:
+            self._table.removeRow(row)
+
+    def _move_selected(self, delta: int) -> None:
+        row = self._selected_row()
+        if row is None:
+            return
+        target = row + delta
+        if target < 0 or target >= self._table.rowCount():
+            return
+        current = self.fields()
+        current[row], current[target] = current[target], current[row]
+        self._table.setRowCount(0)
+        for field_def in current:
+            self._append_row(field_def)
+        self._table.selectRow(target)
+
+    def _selected_row(self) -> int | None:
+        indexes = self._table.selectionModel().selectedRows()
+        if not indexes:
+            return None
+        return indexes[0].row()
+
+
 # ------------------------------------------------------------------
 # Grid editor
 # ------------------------------------------------------------------
@@ -563,7 +686,11 @@ class GridEditor(QWidget):
         # Grid state (150 DPI pixel space)
         self._h_lines: list[int] = []
         self._v_lines: list[int] = []
-        self._pairs: list[CellPair] = []
+        self._fields: list[FieldDefinition] = [
+            FieldDefinition("swatch", "image", 1),
+            FieldDefinition("material_id", "text", 1),
+        ]
+        self._groups: list[CellGroup] = []
         self._omitted_pages: set[int] = set()
         self._omit_regions: list[OmitRegion] = []
 
@@ -578,7 +705,7 @@ class GridEditor(QWidget):
         self._placing: bool = False
         self._dragging: tuple[str, int] | None = None
         self._hovered_line: tuple[str, int] | None = None
-        self._pending_image: tuple[int, int] | None = None
+        self._pending_group_cells: list[tuple[int, int]] = []
         self._hovered_cell: tuple[int, int] | None = None
         self._omit_start: tuple[int, int] | None = None
         self._omit_preview: tuple[int, int, int, int] | None = None
@@ -605,11 +732,11 @@ class GridEditor(QWidget):
         warn_color = QColor(theme.WARNING)
         danger_color = QColor(theme.ERROR)
 
-        # --- Tool group: row / column / pair / ignore area ---
+        # --- Tool group: row / column / group / ignore area ---
         modes = [
             ("h-line.svg", "add_h", "Add a horizontal row boundary. Click-drag across the page."),
             ("v-line.svg", "add_v", "Add a vertical column boundary. Click-drag across the page."),
-            ("link.svg", "pairing", "Pair an image cell with its matching ID/text cell."),
+            ("link.svg", "grouping", "Create a group by clicking cells in field order."),
             ("omit-area.svg", "omit", "Ignore an area on this page. Click-drag the region to skip."),
         ]
         for icon_name, mode, tooltip in modes:
@@ -620,6 +747,17 @@ class GridEditor(QWidget):
             btn.clicked.connect(lambda _checked, m=mode, b=btn: self._set_mode(m, b))
             setattr(self, f"_btn_{mode}", btn)
             bar.addWidget(btn)
+
+        bar.addSpacing(6)
+        bar.addWidget(_make_separator())
+        bar.addSpacing(6)
+
+        self._fields_btn = GlowIconButton(
+            "layers.svg",
+            "Define extraction fields, types, click counts, and column order.",
+        )
+        self._fields_btn.clicked.connect(self._edit_fields)
+        bar.addWidget(self._fields_btn)
 
         bar.addSpacing(6)
         bar.addWidget(_make_separator())
@@ -709,7 +847,7 @@ class GridEditor(QWidget):
         # --- Destructive ---
         clear_btn = GlowIconButton(
             "trash.svg",
-            "Clear all lines, pairings, and omissions for this PDF.",
+            "Clear all lines, groups, and omissions for this PDF.",
             glow_color=danger_color,
         )
         clear_btn.setProperty("danger", True)
@@ -743,7 +881,7 @@ class GridEditor(QWidget):
         inner.addWidget(title)
         inner.addSpacing(8)
 
-        subtitle = QLabel("Define reusable row and column boundaries, then pair swatches with IDs.")
+        subtitle = QLabel("Define reusable row and column boundaries, then group fields for export.")
         subtitle.setProperty("body", True)
         subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
         inner.addWidget(subtitle)
@@ -797,7 +935,7 @@ class GridEditor(QWidget):
             start_page=0,
             horizontal_lines=list(self._h_lines),
             vertical_lines=list(self._v_lines),
-            pairs=list(self._pairs),
+            groups=list(self._groups),
         )]
         self._update_page_controls()
         self._update_segment_nav()
@@ -809,7 +947,8 @@ class GridEditor(QWidget):
         return Grid(
             horizontal_lines=sorted(self._h_lines),
             vertical_lines=sorted(self._v_lines),
-            pairs=list(self._pairs),
+            fields=list(self._fields),
+            groups=list(self._groups),
             omitted_pages=sorted(self._omitted_pages),
             omit_regions=list(self._omit_regions),
         )
@@ -821,10 +960,11 @@ class GridEditor(QWidget):
     def apply_profile(self, grid: Grid) -> None:
         self._h_lines = sorted(grid.horizontal_lines)
         self._v_lines = sorted(grid.vertical_lines)
-        self._pairs = list(grid.pairs)
+        self._fields = list(grid.fields)
+        self._groups = list(grid.groups)
         self._omitted_pages = set(grid.omitted_pages)
         self._omit_regions = list(grid.omit_regions)
-        self._pending_image = None
+        self._pending_group_cells = []
         self._hovered_cell = None
         self._hovered_line = None
         self._omit_start = None
@@ -834,7 +974,7 @@ class GridEditor(QWidget):
             start_page=0,
             horizontal_lines=list(self._h_lines),
             vertical_lines=list(self._v_lines),
-            pairs=list(self._pairs),
+            groups=list(self._groups),
         )]
         self._set_hint("Profile applied. Navigate pages to review page/section omissions.")
         self._update_page_controls()
@@ -863,7 +1003,7 @@ class GridEditor(QWidget):
             return
         self._viewer.load_page(index)
         self._zoom_label.setText("100%")
-        self._pending_image = None
+        self._pending_group_cells = []
         self._hovered_cell = None
         self._hovered_line = None
         self._omit_start = None
@@ -1025,11 +1165,11 @@ class GridEditor(QWidget):
 
     def _set_mode(self, mode: str, active_btn: QToolButton) -> None:
         self._mode = mode if active_btn.isChecked() else "idle"
-        for attr in ("_btn_add_h", "_btn_add_v", "_btn_pairing", "_btn_omit"):
+        for attr in ("_btn_add_h", "_btn_add_v", "_btn_grouping", "_btn_omit"):
             btn = getattr(self, attr, None)
             if btn and btn is not active_btn:
                 btn.setChecked(False)
-        self._pending_image = None
+        self._pending_group_cells = []
         self._hovered_cell = None
         self._omit_start = None
         self._omit_preview = None
@@ -1040,7 +1180,7 @@ class GridEditor(QWidget):
             "idle": "Drag existing handles to move lines. Right-click a line to remove it.",
             "add_h": "Click-drag across the PDF to place a horizontal row boundary.",
             "add_v": "Click-drag across the PDF to place a vertical column boundary.",
-            "pairing": "Click the image cell first, then click the matching ID/text cell.",
+            "grouping": "Click cells in field order until the group is complete.",
             "omit": "Click-drag a section on this page to ignore during extraction. Right-click an ignored section to remove it.",
         }
         self._set_hint(hints.get(self._mode, hints["idle"]))
@@ -1103,8 +1243,8 @@ class GridEditor(QWidget):
             self._placing = True
             self._preview = max(0, ox)
             self._overlay.update()
-        elif self._mode == "pairing":
-            self._on_pair_click(ox, oy)
+        elif self._mode == "grouping":
+            self._on_group_click(ox, oy)
         elif self._mode == "omit":
             start = self._clamped_orig_point(ox, oy)
             self._omit_start = start
@@ -1163,7 +1303,7 @@ class GridEditor(QWidget):
                 self._overlay.update()
             return
 
-        if self._mode == "pairing":
+        if self._mode == "grouping":
             self._hovered_cell = self._cell_at_orig(ox, oy)
         else:
             self._hovered_cell = None
@@ -1209,6 +1349,7 @@ class GridEditor(QWidget):
                     if self._can_place_line("h", self._preview):
                         self._h_lines.append(self._preview)
                         self._h_lines.sort()
+                        self._clear_groups_for_grid_change()
                         self._set_hint("Row boundary added. Drag its handle to adjust.")
                     else:
                         self._set_hint("Row boundary is too close to another line or page edge.")
@@ -1216,6 +1357,7 @@ class GridEditor(QWidget):
                     if self._can_place_line("v", self._preview):
                         self._v_lines.append(self._preview)
                         self._v_lines.sort()
+                        self._clear_groups_for_grid_change()
                         self._set_hint("Column boundary added. Drag its handle to adjust.")
                     else:
                         self._set_hint("Column boundary is too close to another line or page edge.")
@@ -1256,21 +1398,18 @@ class GridEditor(QWidget):
                 self._overlay.update()
             return
 
-        if self._mode == "pairing":
-            if self._pending_image is not None:
-                self._pending_image = None
-                self._set_hint("Pair selection cancelled.")
+        if self._mode == "grouping":
+            if self._pending_group_cells:
+                self._pending_group_cells = []
+                self._set_hint("Group selection cancelled.")
                 self._overlay.update()
                 return
             cell = self._cell_at_orig(ox, oy)
             if cell:
-                before = len(self._pairs)
-                self._pairs = [
-                    p for p in self._pairs
-                    if p.image_cell != cell and p.text_cell != cell
-                ]
-                if len(self._pairs) != before:
-                    self._set_hint("Cell pair removed.")
+                before = len(self._groups)
+                self._groups = [group for group in self._groups if cell not in group.cells()]
+                if len(self._groups) != before:
+                    self._set_hint("Group removed.")
                     self._record_segment_change()
                 self._overlay.update()
             return
@@ -1278,31 +1417,46 @@ class GridEditor(QWidget):
         hit_h, hit_v = self._line_hit(dx, dy)
         if hit_h is not None:
             del self._h_lines[hit_h]
-            self._pairs = []
-            self._set_hint("Row boundary removed. Pairings were cleared because the grid changed.")
+            self._clear_groups_for_grid_change()
+            self._set_hint("Row boundary removed. Groups were cleared because the grid changed.")
             self._overlay.update()
             self._record_segment_change()
         elif hit_v is not None:
             del self._v_lines[hit_v]
-            self._pairs = []
-            self._set_hint("Column boundary removed. Pairings were cleared because the grid changed.")
+            self._clear_groups_for_grid_change()
+            self._set_hint("Column boundary removed. Groups were cleared because the grid changed.")
             self._overlay.update()
             self._record_segment_change()
 
-    def _on_pair_click(self, ox: int, oy: int) -> None:
+    def _on_group_click(self, ox: int, oy: int) -> None:
         cell = self._cell_at_orig(ox, oy)
         if cell is None:
             return
-        if self._pending_image is None:
-            self._pending_image = cell
-            self._set_hint("Image cell selected. Now click the matching ID/text cell.")
-        elif cell == self._pending_image:
-            self._pending_image = None
-            self._set_hint("Pair selection cancelled.")
+        if not self._fields:
+            self._set_hint("Define fields before creating groups.")
+            return
+        if cell in self._pending_group_cells:
+            self._set_hint("That cell is already selected for the pending group.")
+            return
+
+        candidate = [*self._pending_group_cells, cell]
+        field_def = self._field_for_click_index(len(candidate) - 1)
+        if field_def is None:
+            self._pending_group_cells = []
+            return
+        current_cells = self._pending_cells_for_field(candidate, field_def)
+        if len(current_cells) == field_def.click_count and not cells_form_rectangle(current_cells):
+            self._set_hint("Field cells must form one adjacent rectangle.")
+            return
+
+        self._pending_group_cells = candidate
+        if len(self._pending_group_cells) < self._recipe_click_count():
+            self._set_hint(f"Group selection {len(self._pending_group_cells)}/{self._recipe_click_count()}.")
         else:
-            self._pairs.append(CellPair(image_cell=self._pending_image, text_cell=cell))
-            self._pending_image = None
-            self._set_hint("Pair created. Continue pairing cells or right-click a pair to remove it.")
+            group = CellGroup(field_cells=self._field_cells_from_pending())
+            self._groups.append(group)
+            self._pending_group_cells = []
+            self._set_hint("Group created. Continue grouping cells or right-click a group to remove it.")
             self._record_segment_change()
         self._overlay.update()
 
@@ -1310,13 +1464,78 @@ class GridEditor(QWidget):
     # Grid management
     # ------------------------------------------------------------------
 
+    def _edit_fields(self) -> None:
+        if self._groups:
+            confirm = QMessageBox(self)
+            confirm.setWindowTitle("Change fields")
+            confirm.setIcon(QMessageBox.Icon.Warning)
+            confirm.setText("Changing fields will clear existing groups.")
+            confirm.setInformativeText("Continue?")
+            confirm.setStandardButtons(
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel
+            )
+            confirm.setDefaultButton(QMessageBox.StandardButton.Cancel)
+            if confirm.exec() != QMessageBox.StandardButton.Yes:
+                return
+
+        dialog = _FieldRecipeDialog(list(self._fields), self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        fields = dialog.fields()
+        if not fields:
+            self._set_hint("Keep at least one field in the recipe.")
+            return
+        self._fields = fields
+        self._groups.clear()
+        self._pending_group_cells = []
+        self._record_segment_change()
+        self._overlay.update()
+
+    def _recipe_click_count(self) -> int:
+        return sum(field_def.click_count for field_def in self._fields)
+
+    def _field_for_click_index(self, click_index: int) -> FieldDefinition | None:
+        start = 0
+        for field_def in self._fields:
+            end = start + field_def.click_count
+            if start <= click_index < end:
+                return field_def
+            start = end
+        return None
+
+    def _pending_cells_for_field(
+        self,
+        pending: list[tuple[int, int]],
+        field_def: FieldDefinition,
+    ) -> list[tuple[int, int]]:
+        start = 0
+        for candidate in self._fields:
+            end = start + candidate.click_count
+            if candidate.name == field_def.name:
+                return pending[start:end]
+            start = end
+        return []
+
+    def _field_cells_from_pending(self) -> dict[str, list[tuple[int, int]]]:
+        result: dict[str, list[tuple[int, int]]] = {}
+        start = 0
+        for field_def in self._fields:
+            end = start + field_def.click_count
+            result[field_def.name] = self._pending_group_cells[start:end]
+            start = end
+        return result
+
+    def _clear_groups_for_grid_change(self) -> None:
+        self._groups.clear()
+        self._pending_group_cells = []
+
     def _clear_grid(self) -> None:
         self._h_lines.clear()
         self._v_lines.clear()
-        self._pairs.clear()
+        self._groups.clear()
         self._omitted_pages.clear()
         self._omit_regions.clear()
-        self._pending_image = None
+        self._pending_group_cells = []
         self._hovered_cell = None
         self._hovered_line = None
         self._omit_start = None
@@ -1351,7 +1570,7 @@ class GridEditor(QWidget):
             start_page=page_index,
             horizontal_lines=list(self._h_lines),
             vertical_lines=list(self._v_lines),
-            pairs=list(self._pairs),
+            groups=list(self._groups),
         )
         if self._segments[seg_idx].start_page == page_index:
             self._segments[seg_idx] = new_seg
@@ -1366,8 +1585,8 @@ class GridEditor(QWidget):
         seg = self._segments[self._segment_index_for_page(page_index)]
         self._h_lines = sorted(seg.horizontal_lines)
         self._v_lines = sorted(seg.vertical_lines)
-        self._pairs = list(seg.pairs)
-        self._pending_image = None
+        self._groups = list(seg.groups)
+        self._pending_group_cells = []
         self._overlay.update()
 
     def _update_segment_nav(self) -> None:

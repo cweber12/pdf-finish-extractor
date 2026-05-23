@@ -3,12 +3,14 @@ from __future__ import annotations
 import io
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Protocol
 
 from openpyxl import Workbook
 from openpyxl.drawing.image import Image as WorksheetImage
 from openpyxl.styles import Alignment, Font, PatternFill
+from openpyxl.utils import get_column_letter
 from PIL import Image as PILImage
+
+from src.extraction.extractor import ExtractedGroup
 
 _HEADER_FILL = PatternFill("solid", fgColor="E2E8F0")
 _COLUMN_FILL = PatternFill("solid", fgColor="CBD5E1")
@@ -18,53 +20,64 @@ _MAX_IMAGE_WIDTH = 140
 _MAX_IMAGE_HEIGHT = 92
 
 
-class SwatchWorkbookRow(Protocol):
-    material_id: str
-    image_bytes: bytes
-
-
 def export_swatch_workbook(
     path: str | Path,
-    pairs: Sequence[SwatchWorkbookRow],
+    groups: Sequence[ExtractedGroup],
     *,
     manufacturer: str,
     category: str,
 ) -> None:
-    """Write extracted material IDs and swatch images to an Excel workbook."""
+    """Write extracted groups to an Excel workbook."""
     workbook = Workbook()
     sheet = workbook.active
-    sheet.title = "Swatches"
+    sheet.title = "Extracted Data"
 
     sheet["A1"] = "Manufacturer"
     sheet["B1"] = manufacturer
     sheet["A2"] = "Category"
     sheet["B2"] = category
-    sheet["A4"] = "ID"
-    sheet["B4"] = "Image"
 
-    for cell in ("A1", "A2", "A4", "B4"):
+    field_names = _field_names(groups)
+    for column_index, field_name in enumerate(field_names, start=1):
+        cell = sheet.cell(row=4, column=column_index, value=field_name)
+        cell.font = _BOLD
+        cell.fill = _COLUMN_FILL
+        cell.alignment = Alignment(horizontal="center")
+        sheet.column_dimensions[get_column_letter(column_index)].width = 24
+
+    for cell in ("A1", "A2"):
         sheet[cell].font = _BOLD
     for cell in ("A1", "B1", "A2", "B2"):
         sheet[cell].fill = _HEADER_FILL
-    for cell in ("A4", "B4"):
-        sheet[cell].fill = _COLUMN_FILL
-        sheet[cell].alignment = Alignment(horizontal="center")
 
-    sheet.column_dimensions["A"].width = 26
-    sheet.column_dimensions["B"].width = 22
     sheet.freeze_panes = "A5"
 
-    for row_index, pair in enumerate(pairs, start=5):
-        id_cell = sheet.cell(row=row_index, column=1, value=pair.material_id)
-        id_cell.font = _BODY
-        id_cell.alignment = Alignment(vertical="center")
-
-        image = _worksheet_image(pair.image_bytes)
-        if image is not None:
-            sheet.add_image(image, f"B{row_index}")
+    for row_index, group in enumerate(groups, start=5):
         sheet.row_dimensions[row_index].height = 74
+        for column_index, field_name in enumerate(field_names, start=1):
+            value = group.values.get(field_name)
+            if value is None:
+                continue
+            cell = sheet.cell(row=row_index, column=column_index)
+            cell.font = _BODY
+            cell.alignment = Alignment(vertical="center", wrap_text=True)
+            if value.field_type == "image":
+                image = _worksheet_image(value.image_bytes)
+                if image is not None:
+                    sheet.add_image(image, f"{get_column_letter(column_index)}{row_index}")
+            else:
+                cell.value = value.text
 
     workbook.save(path)
+
+
+def _field_names(groups: Sequence[ExtractedGroup]) -> list[str]:
+    names: list[str] = []
+    for group in groups:
+        for name in group.values:
+            if name not in names:
+                names.append(name)
+    return names
 
 
 def _worksheet_image(image_bytes: bytes) -> WorksheetImage | None:

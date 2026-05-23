@@ -44,3 +44,12 @@ class ProfileManager:
             return None
         data = json.loads(path.read_text(encoding="utf-8"))
         return Grid.from_dict(data)
+
+    def delete(self, name: str) -> bool:
+        """Delete the saved profile named *name*. Returns True if a file was removed."""
+        safe_name = _safe_profile_name(name)
+        path = _PROFILES_DIR / f"{safe_name}.json"
+        if not path.exists():
+            return False
+        path.unlink()
+        return True

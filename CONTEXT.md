@@ -1,33 +1,61 @@
 # PDF Finish Extractor
 
-A desktop tool for importing material finish catalogs from PDFs into the FFE materials database. The user defines a grid layout over a PDF, pairs swatch images with material IDs, and uploads the results.
+A desktop tool for importing material finish catalog data from PDFs into Excel. The user defines a grid layout over a PDF, groups related catalog cells into extracted rows, and exports the results.
 
 ## Language
 
 ### Extraction
 
 **Grid**:
-A set of horizontal lines, vertical lines, cell pairs, omitted pages, and omit regions that define how a PDF catalog is divided and which cells are extracted.
+A set of horizontal lines, vertical lines, Groups, omitted pages, and omit regions that define how a PDF catalog is divided and which cells are extracted.
 _Avoid_: Layout, template, schema
 
 **Profile**:
 A saved, named Grid stored as a JSON file in `profiles/`. Reused across extraction runs for catalogs that share the same layout.
 _Avoid_: Template, config, preset
 
-**Pair / CellPair**:
-An association between one image cell and one text cell in the same Grid. Indicates that the swatch image in the image cell belongs to the material ID in the text cell.
-_Avoid_: Link, mapping, connection
+**Group**:
+One extracted material record in a Grid. A Group contains one or more Fields whose cells are read together into a single spreadsheet row.
+_Avoid_: Pair, link, mapping, connection
 
-**ExtractedPair**:
-A resolved Pair with concrete image bytes and material ID text, produced by running the Extractor over a PDF page.
+**Pair**:
+An obsolete association between one image cell and one text cell. New Profiles use Groups and Fields instead.
+_Avoid_: CellPair, link, mapping, connection
+
+**Field**:
+A named part of a Group, associated with one or more grid cells that form one extracted value. Each Field has a type, such as text or image.
+_Avoid_: Column, attribute, slot
+
+**Sparse Group**:
+An extracted Group where one or more Fields are blank. Sparse Groups are valid as long as at least one Field has data.
+_Avoid_: Invalid group, incomplete group
+
+**Field area**:
+The rectangular area formed from the outer bounds of one or more adjacent grid cells assigned to a Field. A Field area is extracted as one rectangular area, not as separate cells stitched together.
+_Avoid_: Selection, crop zone, multi-cell stitch
+
+**Adjacent cells**:
+Grid cells that touch along an edge. Multi-cell Fields use adjacent cells so their Field area matches what the user visually selected.
+_Avoid_: Nearby cells, loosely related cells
+
+**Field recipe**:
+The ordered set of Fields, their types, and their required click counts for each Group in a Grid.
+_Avoid_: Schema, template, form
+
+**Structural recipe edit**:
+A change to the Field recipe that can alter how Group clicks are interpreted, such as reordering Fields or changing a Field type or click count.
+_Avoid_: Minor edit, cosmetic edit
+
+**ExtractedGroup**:
+A resolved Group with concrete field values, produced by running the Extractor over a PDF page.
 _Avoid_: Result, output, record
 
 **OmitRegion**:
-A page-specific rectangle within the Grid that is silently skipped during extraction. Pairs whose cells intersect an OmitRegion on the same page are dropped.
+A page-specific rectangle within the Grid that is silently skipped during extraction. Groups whose cells intersect an OmitRegion on the same page are dropped.
 _Avoid_: Ignore area, exclusion zone, skip region
 
 **Material**:
-A single finish product in the FFE database, identified by a composite ID (manufacturer + category + code). Each extracted pair maps to one Material.
+A single finish product in the FFE database, identified by a composite ID (manufacturer + category + code). Upload maps extracted data to Materials, but Excel export does not require a designated Material field.
 _Avoid_: Item, product, swatch (as a synonym for the database entity)
 
 **Swatch**:
@@ -58,3 +86,6 @@ _Avoid_: Default zoom, zoom out, reset zoom
 >
 > **Dev**: "Is a swatch the same as a material?"
 > **Domain expert**: "No. A swatch is the image crop. The material is the database entity. One material has one swatch, but they're produced at different stages."
+>
+> **Dev**: "Is a Group the same as the old Pair?"
+> **Domain expert**: "No. A Pair only connected one swatch cell to one text cell. A Group is one extracted material record and can contain any number of named Fields."

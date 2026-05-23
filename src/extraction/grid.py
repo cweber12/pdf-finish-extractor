@@ -1,31 +1,69 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass, field
+from typing import Any, Literal, cast
+
+FieldType = Literal["text", "image"]
+CellAddress = tuple[int, int]
 
 
 @dataclass(frozen=True)
-class CellPair:
-    """An explicit pairing of one image cell with one text cell.
+class FieldDefinition:
+    """A named field in the extraction recipe."""
 
-    Cell addresses are ``(row_index, col_index)`` within the grid formed by
-    ``horizontal_lines`` and ``vertical_lines``.
-    """
+    name: str
+    field_type: FieldType = "text"
+    click_count: int = 1
 
-    image_cell: tuple[int, int]
-    text_cell: tuple[int, int]
-
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, object]:
         return {
-            "image_cell": list(self.image_cell),
-            "text_cell": list(self.text_cell),
+            "name": self.name,
+            "type": self.field_type,
+            "click_count": self.click_count,
         }
 
     @classmethod
-    def from_dict(cls, data: dict) -> CellPair:
+    def from_dict(cls, data: dict[str, Any]) -> FieldDefinition:
+        field_type = str(data.get("type", "text")).lower()
+        if field_type not in ("text", "image"):
+            field_type = "text"
         return cls(
-            image_cell=_coerce_cell(data["image_cell"]),
-            text_cell=_coerce_cell(data["text_cell"]),
+            name=str(data.get("name", "")).strip(),
+            field_type=cast(FieldType, field_type),
+            click_count=max(1, int(data.get("click_count", 1))),
         )
+
+
+@dataclass(frozen=True)
+class CellGroup:
+    """Cells assigned to each Field for one extracted row."""
+
+    field_cells: dict[str, list[CellAddress]] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "field_cells": {
+                name: [list(cell) for cell in cells]
+                for name, cells in self.field_cells.items()
+            }
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> CellGroup:
+        raw = data.get("field_cells", {})
+        if not isinstance(raw, dict):
+            raw = {}
+        return cls(
+            field_cells={
+                str(name): [_coerce_cell(cell) for cell in cells]
+                for name, cells in raw.items()
+                if isinstance(cells, list)
+            }
+        )
+
+    def cells(self) -> list[CellAddress]:
+        return [cell for cells in self.field_cells.values() for cell in cells]
 
 
 @dataclass(frozen=True)
@@ -41,14 +79,14 @@ class OmitRegion:
     page_index: int
     rect: tuple[int, int, int, int]  # x0, y0, x1, y1
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, object]:
         return {
             "page_index": self.page_index,
             "rect": list(self.rect),
         }
 
     @classmethod
-    def from_dict(cls, data: dict) -> OmitRegion:
+    def from_dict(cls, data: dict[str, Any]) -> OmitRegion:
         page_index = int(data.get("page_index", 0))
         rect = _coerce_rect(data.get("rect", [0, 0, 0, 0]))
         return cls(page_index=page_index, rect=rect)
@@ -56,55 +94,46 @@ class OmitRegion:
 
 @dataclass
 class GridSegment:
-    """Grid lines and pairings that apply from ``start_page`` onward.
-
-    Stored in 150-DPI pixel space, the same coordinate system as :class:`Grid`.
-    A segment covers all pages from ``start_page`` up to (but not including)
-    the ``start_page`` of the next segment in a sorted sequence.
-    """
+    """Grid lines and groups that apply from ``start_page`` onward."""
 
     start_page: int
     horizontal_lines: list[int] = field(default_factory=list)
     vertical_lines: list[int] = field(default_factory=list)
-    pairs: list[CellPair] = field(default_factory=list)
+    groups: list[CellGroup] = field(default_factory=list)
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, object]:
         return {
             "start_page": self.start_page,
             "horizontal_lines": sorted(self.horizontal_lines),
             "vertical_lines": sorted(self.vertical_lines),
-            "pairs": [p.to_dict() for p in self.pairs],
+            "groups": [group.to_dict() for group in self.groups],
         }
 
     @classmethod
-    def from_dict(cls, data: dict) -> "GridSegment":
+    def from_dict(cls, data: dict[str, Any]) -> GridSegment:
         return cls(
             start_page=int(data.get("start_page", 0)),
             horizontal_lines=[int(v) for v in data.get("horizontal_lines", [])],
             vertical_lines=[int(v) for v in data.get("vertical_lines", [])],
-            pairs=[CellPair.from_dict(p) for p in data.get("pairs", [])],
+            groups=[CellGroup.from_dict(group) for group in data.get("groups", [])],
         )
 
 
 @dataclass
 class Grid:
-    """Defines a grid layout, pairings, and per-PDF omit rules.
+    """Defines a grid layout, field recipe, groups, and omit rules.
 
     ``horizontal_lines`` and ``vertical_lines`` are pixel coordinates in the
     150-DPI rendered image space used by the editor and extractor.
 
-    ``pairs`` explicitly lists which cells go together. Each :class:`CellPair`
-    names the image cell and the text cell that contains the material ID.
-
-    ``omitted_pages`` skips entire zero-based PDF pages during extraction.
-    ``omit_regions`` skips page-specific rectangles that intersect a pair's
-    image or text cell. This lets mixed catalog pages silently ignore diagrams,
-    renderings, or empty sections without changing the reusable grid.
+    ``fields`` defines the ordered extraction recipe. ``groups`` records the
+    cells selected for each field in each extracted row.
     """
 
     horizontal_lines: list[int] = field(default_factory=list)
     vertical_lines: list[int] = field(default_factory=list)
-    pairs: list[CellPair] = field(default_factory=list)
+    fields: list[FieldDefinition] = field(default_factory=list)
+    groups: list[CellGroup] = field(default_factory=list)
     omitted_pages: list[int] = field(default_factory=list)
     omit_regions: list[OmitRegion] = field(default_factory=list)
 
@@ -113,43 +142,64 @@ class Grid:
         return (
             not self.horizontal_lines
             and not self.vertical_lines
-            and not self.pairs
+            and not self.fields
+            and not self.groups
             and not self.omitted_pages
             and not self.omit_regions
         )
 
     @property
-    def has_pairs(self) -> bool:
-        return bool(self.pairs)
+    def has_groups(self) -> bool:
+        return bool(self.groups)
 
     def normalized(self) -> Grid:
-        """Return a cleaned copy of the grid/settings.
-
-        This keeps saved profiles tolerant of accidental duplicate lines,
-        negative coordinates, malformed omit rectangles, or invalid pair data
-        without mutating the object owned by the UI.
-        """
         horizontal = _dedupe_ints(v for v in self.horizontal_lines if v >= 0)
         vertical = _dedupe_ints(v for v in self.vertical_lines if v >= 0)
         omitted_pages = _dedupe_ints(v for v in self.omitted_pages if v >= 0)
-
         max_row = len(horizontal)
         max_col = len(vertical)
 
-        pairs: list[CellPair] = []
-        seen_pairs: set[tuple[tuple[int, int], tuple[int, int]]] = set()
+        fields: list[FieldDefinition] = []
+        seen_names: set[str] = set()
+        for field_def in self.fields:
+            name = field_def.name.strip()
+            if not name or name in seen_names:
+                continue
+            seen_names.add(name)
+            fields.append(
+                FieldDefinition(
+                    name=name,
+                    field_type=field_def.field_type,
+                    click_count=max(1, int(field_def.click_count)),
+                )
+            )
 
-        for pair in self.pairs:
-            if not _cell_is_valid(pair.image_cell, max_row, max_col):
-                continue
-            if not _cell_is_valid(pair.text_cell, max_row, max_col):
-                continue
+        field_by_name = {field_def.name: field_def for field_def in fields}
+        groups: list[CellGroup] = []
+        seen_groups: set[tuple[tuple[str, tuple[CellAddress, ...]], ...]] = set()
+        for group in self.groups:
+            field_cells: dict[str, list[CellAddress]] = {}
+            for field_def in fields:
+                cells = list(group.field_cells.get(field_def.name, []))
+                if len(cells) != field_def.click_count:
+                    continue
+                if not all(_cell_is_valid(cell, max_row, max_col) for cell in cells):
+                    continue
+                if not _cells_form_rectangle(cells):
+                    continue
+                field_cells[field_def.name] = cells
 
-            key = (pair.image_cell, pair.text_cell)
-            if key in seen_pairs:
+            if not field_cells:
                 continue
-            seen_pairs.add(key)
-            pairs.append(pair)
+            key = tuple(
+                (name, tuple(cells))
+                for name, cells in field_cells.items()
+                if name in field_by_name
+            )
+            if key in seen_groups:
+                continue
+            seen_groups.add(key)
+            groups.append(CellGroup(field_cells=field_cells))
 
         regions: list[OmitRegion] = []
         seen_regions: set[tuple[int, tuple[int, int, int, int]]] = set()
@@ -159,47 +209,50 @@ class Grid:
             rect = _normalize_rect(region.rect)
             if rect is None:
                 continue
-            key = (region.page_index, rect)
-            if key in seen_regions:
+            region_key = (region.page_index, rect)
+            if region_key in seen_regions:
                 continue
-            seen_regions.add(key)
+            seen_regions.add(region_key)
             regions.append(OmitRegion(page_index=region.page_index, rect=rect))
 
         return Grid(
             horizontal_lines=horizontal,
             vertical_lines=vertical,
-            pairs=pairs,
+            fields=fields,
+            groups=groups,
             omitted_pages=omitted_pages,
             omit_regions=regions,
         )
 
-    # ------------------------------------------------------------------
-    # Serialisation
-    # ------------------------------------------------------------------
-
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, object]:
         normalized = self.normalized()
         return {
             "horizontal_lines": normalized.horizontal_lines,
             "vertical_lines": normalized.vertical_lines,
-            "pairs": [p.to_dict() for p in normalized.pairs],
+            "fields": [field_def.to_dict() for field_def in normalized.fields],
+            "groups": [group.to_dict() for group in normalized.groups],
             "omitted_pages": normalized.omitted_pages,
-            "omit_regions": [r.to_dict() for r in normalized.omit_regions],
+            "omit_regions": [region.to_dict() for region in normalized.omit_regions],
         }
 
     @classmethod
-    def from_dict(cls, data: dict) -> Grid:
+    def from_dict(cls, data: dict[str, Any]) -> Grid:
         grid = cls(
             horizontal_lines=[int(v) for v in data.get("horizontal_lines", [])],
             vertical_lines=[int(v) for v in data.get("vertical_lines", [])],
-            pairs=[CellPair.from_dict(p) for p in data.get("pairs", [])],
+            fields=[FieldDefinition.from_dict(v) for v in data.get("fields", [])],
+            groups=[CellGroup.from_dict(v) for v in data.get("groups", [])],
             omitted_pages=[int(v) for v in data.get("omitted_pages", [])],
             omit_regions=[OmitRegion.from_dict(r) for r in data.get("omit_regions", [])],
         )
         return grid.normalized()
 
 
-def _coerce_cell(value: object) -> tuple[int, int]:
+def cells_form_rectangle(cells: list[CellAddress]) -> bool:
+    return _cells_form_rectangle(cells)
+
+
+def _coerce_cell(value: object) -> CellAddress:
     if not isinstance(value, (list, tuple)) or len(value) != 2:
         raise ValueError(f"Invalid cell address: {value!r}")
     return int(value[0]), int(value[1])
@@ -220,11 +273,22 @@ def _normalize_rect(rect: tuple[int, int, int, int]) -> tuple[int, int, int, int
     return left, top, right, bottom
 
 
-def _dedupe_ints(values) -> list[int]:  # noqa: ANN001
+def _dedupe_ints(values: Iterable[int]) -> list[int]:
     return sorted(set(int(v) for v in values))
 
 
-def _cell_is_valid(cell: tuple[int, int], max_row: int, max_col: int) -> bool:
+def _cell_is_valid(cell: CellAddress, max_row: int, max_col: int) -> bool:
     row, col = cell
-    # With N horizontal lines there are N + 1 rows; same for vertical lines.
     return 0 <= row <= max_row and 0 <= col <= max_col
+
+
+def _cells_form_rectangle(cells: list[CellAddress]) -> bool:
+    if not cells:
+        return False
+    unique = set(cells)
+    if len(unique) != len(cells):
+        return False
+    rows = {row for row, _col in cells}
+    cols = {col for _row, col in cells}
+    expected = {(row, col) for row in rows for col in cols}
+    return unique == expected

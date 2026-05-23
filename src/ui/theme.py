@@ -446,6 +446,57 @@ QMenu::separator {{
     margin: 6px 4px;
 }}
 
+/* Grid Layouts menu — inline row with apply + delete. */
+QWidget#layoutMenuRow {{
+    background-color: transparent;
+}}
+
+QPushButton#layoutApplyBtn {{
+    background-color: transparent;
+    color: {TEXT_SECONDARY};
+    border: none;
+    border-radius: 7px;
+    padding: 6px 10px;
+    min-height: 22px;
+    min-width: 200px;
+    font-size: {FONT_MD}px;
+    font-weight: 600;
+    text-align: left;
+}}
+
+QPushButton#layoutApplyBtn:hover {{
+    background-color: rgba(56, 189, 248, 0.12);
+    color: {TEXT_PRIMARY};
+}}
+
+QPushButton#layoutApplyBtn:pressed {{
+    background-color: rgba(56, 189, 248, 0.20);
+}}
+
+QPushButton#layoutApplyBtn[active="true"] {{
+    color: {ACCENT};
+    background-color: rgba(56, 189, 248, 0.08);
+}}
+
+QToolButton#layoutDeleteBtn {{
+    background-color: transparent;
+    border: none;
+    border-radius: 6px;
+    min-width: 24px;
+    max-width: 24px;
+    min-height: 24px;
+    max-height: 24px;
+    padding: 3px;
+}}
+
+QToolButton#layoutDeleteBtn:hover {{
+    background-color: rgba(244, 63, 94, 0.18);
+}}
+
+QToolButton#layoutDeleteBtn:pressed {{
+    background-color: rgba(244, 63, 94, 0.30);
+}}
+
 /* ── ComboBox / inputs ──────────────────────────────────────────────────── */
 QComboBox,
 QLineEdit {{

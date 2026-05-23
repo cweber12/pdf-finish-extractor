@@ -6,7 +6,6 @@ reach into private attributes to set up a known state, then verify the public
 """
 from __future__ import annotations
 
-import sys
 import os
 
 import pytest
