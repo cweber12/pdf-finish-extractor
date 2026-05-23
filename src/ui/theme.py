@@ -119,7 +119,6 @@ QLabel#appTitle {{
 }}
 
 QLabel#appSubtitle,
-QLabel#toolbarHint,
 QLabel#profileHelper,
 QLabel#statusText {{
     color: {TEXT_MUTED};
@@ -142,20 +141,90 @@ QWidget#topActionCluster {{
 QWidget#controlBar {{
     background-color: {BG_SURFACE};
     border-bottom: 1px solid {BORDER};
-    min-height: 54px;
-    max-height: 54px;
+    min-height: 52px;
+    max-height: 52px;
 }}
 
 QWidget#controlBar QLabel {{
     background-color: transparent;
 }}
 
-QLabel#toolLabel {{
-    color: {TEXT_SECONDARY};
+QWidget#toolGroup {{
+    background-color: transparent;
+    border: none;
+}}
+
+QFrame#toolbarSeparator {{
+    background-color: {BORDER};
+    border: none;
+    max-width: 1px;
+    min-width: 1px;
+}}
+
+QLabel.statusChip {{
+    color: {TEXT_MUTED};
+    background-color: transparent;
+    font-family: "JetBrains Mono", "Consolas", "Cascadia Mono", monospace;
     font-size: {FONT_SM}px;
-    font-weight: 800;
-    letter-spacing: 0.7px;
-    text-transform: uppercase;
+    font-weight: 700;
+    letter-spacing: 0.3px;
+    padding: 0 6px;
+    min-width: 38px;
+}}
+
+QLabel.statusChip[muted="true"] {{
+    color: {TEXT_DISABLED};
+}}
+
+QToolButton.iconAction {{
+    background-color: transparent;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    padding: 4px;
+    min-width: 30px;
+    max-width: 30px;
+    min-height: 30px;
+    max-height: 30px;
+}}
+
+QToolButton.iconAction:hover {{
+    background-color: rgba(56, 189, 248, 0.10);
+    border: 1px solid rgba(56, 189, 248, 0.35);
+}}
+
+QToolButton.iconAction:pressed {{
+    background-color: rgba(56, 189, 248, 0.20);
+    border: 1px solid rgba(56, 189, 248, 0.55);
+}}
+
+QToolButton.iconAction:checked {{
+    background-color: rgba(56, 189, 248, 0.18);
+    border: 1px solid rgba(56, 189, 248, 0.55);
+}}
+
+QToolButton.iconAction:disabled {{
+    background-color: transparent;
+    border: 1px solid transparent;
+}}
+
+QToolButton.iconAction[danger="true"]:hover {{
+    background-color: rgba(244, 63, 94, 0.12);
+    border: 1px solid rgba(244, 63, 94, 0.45);
+}}
+
+QToolButton.iconAction[danger="true"]:pressed {{
+    background-color: rgba(244, 63, 94, 0.22);
+    border: 1px solid rgba(244, 63, 94, 0.60);
+}}
+
+QToolButton.iconAction[warn="true"]:checked {{
+    background-color: rgba(245, 158, 11, 0.18);
+    border: 1px solid rgba(245, 158, 11, 0.55);
+}}
+
+QToolButton.iconAction[warn="true"]:hover {{
+    background-color: rgba(245, 158, 11, 0.12);
+    border: 1px solid rgba(245, 158, 11, 0.45);
 }}
 
 /* ── Buttons ────────────────────────────────────────────────────────────── */
@@ -227,72 +296,6 @@ QToolButton[ghost="true"]:hover {{
 QToolButton::menu-indicator {{
     image: none;
     width: 0px;
-}}
-
-/* ── Segmented control ──────────────────────────────────────────────────── */
-QWidget#segmentedControl {{
-    background-color: {BG_PANEL};
-    border: 1px solid {BORDER_SUBTLE};
-    border-radius: 11px;
-    padding: 3px;
-}}
-
-QWidget#segmentedControl QPushButton {{
-    background-color: transparent;
-    color: {TEXT_MUTED};
-    border: none;
-    border-radius: 8px;
-    padding: 7px 12px;
-    min-width: 84px;
-    font-size: {FONT_MD}px;
-    font-weight: 750;
-}}
-
-QWidget#segmentedControl QPushButton:hover:!checked {{
-    background-color: rgba(148, 163, 184, 0.10);
-    color: {TEXT_PRIMARY};
-    border: none;
-}}
-
-QWidget#segmentedControl QPushButton:checked {{
-    background-color: rgba(56, 189, 248, 0.16);
-    color: {ACCENT};
-    border: 1px solid rgba(56, 189, 248, 0.22);
-}}
-
-
-QPushButton#pageNavButton {{
-    min-width: 30px;
-    max-width: 30px;
-    padding-left: 0;
-    padding-right: 0;
-    font-size: 16px;
-    font-weight: 800;
-}}
-
-QLabel#pageStatus {{
-    color: {TEXT_SECONDARY};
-    font-size: {FONT_SM}px;
-    font-weight: 750;
-    min-width: 70px;
-}}
-
-QPushButton#omitPageButton {{
-    background-color: transparent;
-    color: {TEXT_MUTED};
-    border-color: {BORDER};
-}}
-
-QPushButton#omitPageButton:hover {{
-    background-color: rgba(245, 158, 11, 0.10);
-    color: {WARNING};
-    border-color: rgba(245, 158, 11, 0.38);
-}}
-
-QPushButton#omitPageButton:checked {{
-    background-color: rgba(245, 158, 11, 0.16);
-    color: {WARNING};
-    border-color: rgba(245, 158, 11, 0.55);
 }}
 
 /* ── Menus / dropdowns ──────────────────────────────────────────────────── */

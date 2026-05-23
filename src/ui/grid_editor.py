@@ -17,7 +17,18 @@ coordinate system used by the Extractor.
 
 from __future__ import annotations
 
-from PyQt6.QtCore import QPoint, QPointF, QRect, QRectF, Qt, pyqtSignal
+from PyQt6.QtCore import (
+    QEasingCurve,
+    QEvent,
+    QPoint,
+    QPointF,
+    QPropertyAnimation,
+    QRect,
+    QRectF,
+    QSize,
+    Qt,
+    pyqtSignal,
+)
 from PyQt6.QtGui import (
     QBrush,
     QColor,
@@ -30,10 +41,13 @@ from PyQt6.QtGui import (
     QWheelEvent,
 )
 from PyQt6.QtWidgets import (
+    QFrame,
+    QGraphicsDropShadowEffect,
     QHBoxLayout,
     QLabel,
     QPushButton,
     QStackedWidget,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -408,6 +422,132 @@ def _handle_rects_display(
 
 
 # ------------------------------------------------------------------
+# Glowing icon button
+# ------------------------------------------------------------------
+
+
+class GlowIconButton(QToolButton):
+    """Icon-only action button with an animated outer glow.
+
+    The button has no label; identification is purely via tooltip. A drop
+    shadow effect provides the glow, with the blur radius animated on
+    hover/press/checked transitions so the affordance feels responsive
+    without resorting to bright background fills.
+    """
+
+    _IDLE_BLUR = 0.0
+    _HOVER_BLUR = 18.0
+    _PRESS_BLUR = 28.0
+    _CHECKED_BLUR = 14.0
+
+    def __init__(
+        self,
+        icon_name: str,
+        tooltip: str,
+        glow_color: QColor | None = None,
+        checkable: bool = False,
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self.setIcon(QIcon(theme.icon_path(icon_name)))
+        self.setIconSize(QSize(18, 18))
+        self.setToolTip(tooltip)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setAutoRaise(True)
+        self.setCheckable(checkable)
+        self.setProperty("class", "iconAction")
+        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+
+        base = QColor(glow_color) if glow_color is not None else QColor(theme.ACCENT)
+        base.setAlpha(220)
+        self._glow_color = base
+
+        self._glow = QGraphicsDropShadowEffect(self)
+        self._glow.setColor(self._glow_color)
+        self._glow.setBlurRadius(self._IDLE_BLUR)
+        self._glow.setOffset(0, 0)
+        self.setGraphicsEffect(self._glow)
+
+        self._anim = QPropertyAnimation(self._glow, b"blurRadius", self)
+        self._anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+
+        self._hovered = False
+        self._pressed = False
+
+        if checkable:
+            self.toggled.connect(self._on_toggled)
+
+    # -- glow state ----------------------------------------------------
+    def _target_blur(self) -> float:
+        if not self.isEnabled():
+            return self._IDLE_BLUR
+        if self._pressed:
+            return self._PRESS_BLUR
+        if self._hovered:
+            return self._HOVER_BLUR
+        if self.isChecked():
+            return self._CHECKED_BLUR
+        return self._IDLE_BLUR
+
+    def _animate_to(self, target: float, duration: int = 180) -> None:
+        self._anim.stop()
+        self._anim.setDuration(duration)
+        self._anim.setStartValue(self._glow.blurRadius())
+        self._anim.setEndValue(target)
+        self._anim.start()
+
+    def _on_toggled(self, _checked: bool) -> None:
+        self._animate_to(self._target_blur())
+
+    # -- events --------------------------------------------------------
+    def enterEvent(self, event) -> None:  # noqa: ANN001
+        self._hovered = True
+        self._animate_to(self._target_blur())
+        super().enterEvent(event)
+
+    def leaveEvent(self, event) -> None:  # noqa: ANN001
+        self._hovered = False
+        self._animate_to(self._target_blur())
+        super().leaveEvent(event)
+
+    def mousePressEvent(self, event: QMouseEvent) -> None:
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._pressed = True
+            self._animate_to(self._target_blur(), duration=80)
+        super().mousePressEvent(event)
+
+    def mouseReleaseEvent(self, event: QMouseEvent) -> None:
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._pressed = False
+            self._animate_to(self._target_blur(), duration=140)
+        super().mouseReleaseEvent(event)
+
+    def changeEvent(self, event) -> None:  # noqa: ANN001
+        super().changeEvent(event)
+        if event.type() == QEvent.Type.EnabledChange:
+            if not self.isEnabled():
+                self._hovered = False
+                self._pressed = False
+            self._animate_to(self._target_blur(), duration=120)
+
+
+def _make_separator() -> QFrame:
+    sep = QFrame()
+    sep.setObjectName("toolbarSeparator")
+    sep.setFrameShape(QFrame.Shape.NoFrame)
+    sep.setFixedWidth(1)
+    sep.setFixedHeight(22)
+    return sep
+
+
+def _make_status_chip(initial: str = "") -> QLabel:
+    label = QLabel(initial)
+    label.setProperty("class", "statusChip")
+    label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+    return label
+
+
+# ------------------------------------------------------------------
 # Grid editor
 # ------------------------------------------------------------------
 
@@ -459,93 +599,120 @@ class GridEditor(QWidget):
         self._ctrl_bar = QWidget()
         self._ctrl_bar.setObjectName("controlBar")
         bar = QHBoxLayout(self._ctrl_bar)
-        bar.setContentsMargins(16, 0, 16, 0)
-        bar.setSpacing(12)
+        bar.setContentsMargins(18, 0, 18, 0)
+        bar.setSpacing(10)
 
-        tool_label = QLabel("Grid tools")
-        tool_label.setObjectName("toolLabel")
-        bar.addWidget(tool_label)
+        warn_color = QColor(theme.WARNING)
+        danger_color = QColor(theme.ERROR)
 
-        seg = QWidget()
-        seg.setObjectName("segmentedControl")
-        seg_layout = QHBoxLayout(seg)
-        seg_layout.setContentsMargins(0, 0, 0, 0)
-        seg_layout.setSpacing(6)
-
+        # --- Tool group: row / column / pair / ignore area ---
         modes = [
-            (QIcon(theme.icon_path("h-line.svg")), "Rows", "add_h", "Click-drag to add a horizontal row boundary."),
-            (QIcon(theme.icon_path("v-line.svg")), "Columns", "add_v", "Click-drag to add a vertical column boundary."),
-            (QIcon(theme.icon_path("link.svg")), "Pair", "pairing", "Click an image cell, then its matching ID/text cell."),
-            (QIcon(), "Ignore Area", "omit", "Click-drag a page-specific area to skip during extraction."),
+            ("h-line.svg", "add_h", "Add a horizontal row boundary. Click-drag across the page."),
+            ("v-line.svg", "add_v", "Add a vertical column boundary. Click-drag across the page."),
+            ("link.svg", "pairing", "Pair an image cell with its matching ID/text cell."),
+            ("omit-area.svg", "omit", "Ignore an area on this page. Click-drag the region to skip."),
         ]
-        for icon, label, mode, tooltip in modes:
-            btn = QPushButton(icon, f"  {label}")
-            btn.setCheckable(True)
-            btn.setToolTip(tooltip)
+        for icon_name, mode, tooltip in modes:
+            glow = QColor(warn_color) if mode == "omit" else None
+            btn = GlowIconButton(icon_name, tooltip, glow_color=glow, checkable=True)
+            if mode == "omit":
+                btn.setProperty("warn", True)
             btn.clicked.connect(lambda _checked, m=mode, b=btn: self._set_mode(m, b))
             setattr(self, f"_btn_{mode}", btn)
-            seg_layout.addWidget(btn)
+            bar.addWidget(btn)
 
-        bar.addWidget(seg)
+        bar.addSpacing(6)
+        bar.addWidget(_make_separator())
+        bar.addSpacing(6)
 
-        self._prev_page_btn = QPushButton("‹")
-        self._prev_page_btn.setObjectName("pageNavButton")
-        self._prev_page_btn.setToolTip("Previous page")
-        self._prev_page_btn.clicked.connect(lambda: self._go_to_page(self.current_page_index() - 1))
+        # --- Page navigation: prev / [page chip] / next ---
+        self._prev_page_btn = GlowIconButton(
+            "chevron-left.svg",
+            "Previous page",
+        )
+        self._prev_page_btn.clicked.connect(
+            lambda: self._go_to_page(self.current_page_index() - 1)
+        )
         bar.addWidget(self._prev_page_btn)
 
-        self._page_label = QLabel("Page —/—")
-        self._page_label.setObjectName("pageStatus")
+        self._page_label = _make_status_chip("—/—")
+        self._page_label.setToolTip("Current page")
         bar.addWidget(self._page_label)
 
-        self._next_page_btn = QPushButton("›")
-        self._next_page_btn.setObjectName("pageNavButton")
-        self._next_page_btn.setToolTip("Next page")
-        self._next_page_btn.clicked.connect(lambda: self._go_to_page(self.current_page_index() + 1))
+        self._next_page_btn = GlowIconButton(
+            "chevron-right.svg",
+            "Next page",
+        )
+        self._next_page_btn.clicked.connect(
+            lambda: self._go_to_page(self.current_page_index() + 1)
+        )
         bar.addWidget(self._next_page_btn)
 
-        self._seg_prev_btn = QPushButton("←")
-        self._seg_prev_btn.setObjectName("pageNavButton")
-        self._seg_prev_btn.setToolTip("Go to the previous layout segment.")
+        bar.addSpacing(8)
+
+        # --- Layout segment navigation ---
+        self._seg_prev_btn = GlowIconButton(
+            "chevrons-left.svg",
+            "Previous layout segment",
+        )
         self._seg_prev_btn.setEnabled(False)
         self._seg_prev_btn.clicked.connect(self._on_nav_prev_segment)
         bar.addWidget(self._seg_prev_btn)
 
-        self._seg_label = QLabel("Layout —")
-        self._seg_label.setObjectName("pageStatus")
+        self._seg_label = _make_status_chip("—")
+        self._seg_label.setToolTip("Current layout segment")
         bar.addWidget(self._seg_label)
 
-        self._seg_next_btn = QPushButton("→")
-        self._seg_next_btn.setObjectName("pageNavButton")
-        self._seg_next_btn.setToolTip("Go to the next layout segment.")
+        self._seg_next_btn = GlowIconButton(
+            "chevrons-right.svg",
+            "Next layout segment",
+        )
         self._seg_next_btn.setEnabled(False)
         self._seg_next_btn.clicked.connect(self._on_nav_next_segment)
         bar.addWidget(self._seg_next_btn)
 
-        self._zoom_label = QLabel("100%")
-        self._zoom_label.setObjectName("zoomStatus")
+        bar.addSpacing(8)
+
+        self._zoom_label = _make_status_chip("100%")
+        self._zoom_label.setToolTip("Zoom level — scroll over the page to zoom")
         bar.addWidget(self._zoom_label)
 
-        self._omit_page_btn = QPushButton("Omit Page")
-        self._omit_page_btn.setCheckable(True)
-        self._omit_page_btn.setObjectName("omitPageButton")
-        self._omit_page_btn.setToolTip("Skip this entire page during extraction.")
+        bar.addStretch(1)
+
+        # --- Page omission group ---
+        bar.addWidget(_make_separator())
+        bar.addSpacing(6)
+
+        self._omit_page_btn = GlowIconButton(
+            "page-omit.svg",
+            "Omit this page from extraction.",
+            glow_color=warn_color,
+            checkable=True,
+        )
+        self._omit_page_btn.setProperty("warn", True)
         self._omit_page_btn.clicked.connect(self._toggle_current_page_omitted)
         bar.addWidget(self._omit_page_btn)
 
-        self._hint = QLabel("Drag existing handles to move lines. Right-click a line to remove it.")
-        self._hint.setObjectName("toolbarHint")
-        bar.addWidget(self._hint, stretch=1)
-
-        omit_all_btn = QPushButton("Omit All")
-        omit_all_btn.setProperty("ghost", True)
-        omit_all_btn.setToolTip("Mark every page as omitted so none are extracted.")
+        omit_all_btn = GlowIconButton(
+            "pages-omit.svg",
+            "Omit every page so none are extracted.",
+            glow_color=warn_color,
+        )
+        omit_all_btn.setProperty("warn", True)
         omit_all_btn.clicked.connect(self._omit_all_pages)
         bar.addWidget(omit_all_btn)
 
-        clear_btn = QPushButton("Clear Grid")
-        clear_btn.setProperty("ghost", True)
-        clear_btn.setToolTip("Remove all lines and pairings from the current PDF.")
+        bar.addSpacing(6)
+        bar.addWidget(_make_separator())
+        bar.addSpacing(6)
+
+        # --- Destructive ---
+        clear_btn = GlowIconButton(
+            "trash.svg",
+            "Clear all lines, pairings, and omissions for this PDF.",
+            glow_color=danger_color,
+        )
+        clear_btn.setProperty("danger", True)
         clear_btn.clicked.connect(self._clear_grid)
         bar.addWidget(clear_btn)
 
@@ -688,7 +855,7 @@ class GridEditor(QWidget):
         self._prev_page_btn.setEnabled(has_pages and page_index > 0)
         self._next_page_btn.setEnabled(has_pages and page_index < page_count - 1)
         self._omit_page_btn.setEnabled(has_pages)
-        self._page_label.setText(f"Page {page_index + 1}/{page_count}" if has_pages else "Page —/—")
+        self._page_label.setText(f"{page_index + 1}/{page_count}" if has_pages else "—/—")
         self._omit_page_btn.setChecked(page_index in self._omitted_pages)
 
     def _go_to_page(self, index: int) -> None:
@@ -856,7 +1023,7 @@ class GridEditor(QWidget):
     # Mode / cursor management
     # ------------------------------------------------------------------
 
-    def _set_mode(self, mode: str, active_btn: QPushButton) -> None:
+    def _set_mode(self, mode: str, active_btn: QToolButton) -> None:
         self._mode = mode if active_btn.isChecked() else "idle"
         for attr in ("_btn_add_h", "_btn_add_v", "_btn_pairing", "_btn_omit"):
             btn = getattr(self, attr, None)
@@ -878,8 +1045,11 @@ class GridEditor(QWidget):
         }
         self._set_hint(hints.get(self._mode, hints["idle"]))
 
-    def _set_hint(self, text: str) -> None:
-        self._hint.setText(text)
+    def _set_hint(self, _text: str) -> None:
+        # Hint label was removed in favor of static button tooltips; call sites
+        # remain so transient feedback could be re-introduced later without
+        # touching the editor's interaction logic.
+        return
 
     def _update_cursor(self, dx: int | None, dy: int | None) -> None:
         if dx is not None and dy is not None:
@@ -1204,12 +1374,12 @@ class GridEditor(QWidget):
         """Refresh the segment navigator label and button enabled states."""
         total = len(self._segments)
         if total == 0:
-            self._seg_label.setText("Layout —")
+            self._seg_label.setText("—")
             self._seg_prev_btn.setEnabled(False)
             self._seg_next_btn.setEnabled(False)
             return
         idx = self._segment_index_for_page(self.current_page_index())
-        self._seg_label.setText(f"Layout {idx + 1}/{total}")
+        self._seg_label.setText(f"{idx + 1}/{total}")
         self._seg_prev_btn.setEnabled(idx > 0)
         self._seg_next_btn.setEnabled(idx < total - 1)
 

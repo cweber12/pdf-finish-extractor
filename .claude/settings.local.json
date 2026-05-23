@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(.venv/Scripts/python.exe -c \"from src.ui import theme; from src.ui import grid_editor; print\\('imports OK'\\)\")"
+    ]
+  }
+}
