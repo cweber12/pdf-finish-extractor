@@ -14,10 +14,10 @@ pdf-finish-extractor/
 ├── profiles/                 Named grid layouts (JSON). User-managed.
 └── src/
     ├── ui/                   PyQt6 UI layer.
-    │   ├── main_window.py    Top-level window, toolbar, wires UI components together.
+    │   ├── main_window.py    Compatibility adapter re-exporting shell MainWindow.
     │   ├── extraction_feedback.py  Pure helpers for extraction progress/status/toast decisions.
     │   ├── extraction_session.py  QThread extraction lifecycle seam used by MainWindow.
-    │   ├── main_window_intents.py  Pure guard/preflight/message decisions for MainWindow actions.
+    │   ├── main_window_intents.py  Compatibility adapter re-exporting shell intent helpers.
     │   ├── profile_menu.py   Grid layout dropdown row widget + menu population helpers.
     │   ├── grid_editor_lifecycle.py  Grid/profile lifecycle state transforms for GridEditor.
     │   ├── grid_editor_pages.py  Page navigation/omission control state + hint decision helpers.
@@ -40,6 +40,9 @@ pdf-finish-extractor/
     │   ├── preview_panel.py  Shows extracted groups; triggers Excel export.
     │   ├── profile_manager.py  UI-facing adapter over profile persistence.
     │   ├── theme.py  Compatibility adapter re-exporting style tokens and stylesheet.
+    │   ├── shell/
+    │   │   ├── main_window.py  Top-level window, toolbar, wires UI components together.
+    │   │   └── main_window_intents.py  Pure guard/preflight/message decisions for MainWindow actions.
     │   └── style/
     │       ├── theme.py  Design tokens, icon path helper, and global stylesheet.
     │       └── icons/  Bundled SVG assets referenced by the style theme.

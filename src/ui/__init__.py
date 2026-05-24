@@ -3,7 +3,7 @@ __all__ = ["MainWindow", "PDFViewer", "GridEditor", "PreviewPanel", "ProfileMana
 
 def __getattr__(name: str) -> object:
     if name == "MainWindow":
-        from src.ui.main_window import MainWindow
+        from src.ui.shell.main_window import MainWindow
 
         return MainWindow
     if name == "PDFViewer":
