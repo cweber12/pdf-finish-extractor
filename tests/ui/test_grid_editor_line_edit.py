@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from src.ui.grid_editor_line_edit import apply_line_placement, bounded_line_value, can_place_line
+from src.ui.editor.grid_editor_line_edit import apply_line_placement, bounded_line_value, can_place_line
 
 
 def test_bounded_line_value_clamps_when_no_max_value() -> None:
@@ -92,3 +92,5 @@ def test_apply_line_placement_accepts_and_sorts_new_line() -> None:
     assert decision.lines == [20, 50, 80]
     assert decision.clear_groups_for_grid_change is True
     assert decision.hint == "Column boundary added. Drag its handle to adjust."
+
+

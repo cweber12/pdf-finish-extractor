@@ -1,4 +1,4 @@
-from src.ui.grid_editor_hit_test import resolve_line_hit
+from src.ui.editor.grid_editor_hit_test import resolve_line_hit
 
 
 def test_resolve_line_hit_returns_none_when_missing_bounds() -> None:
@@ -64,3 +64,5 @@ def test_resolve_line_hit_matches_vertical_line_inside_page() -> None:
     )
 
     assert hit == (None, 0)
+
+

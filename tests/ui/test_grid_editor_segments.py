@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from src.extraction.grid import CellGroup, GridSegment
-from src.ui.grid_editor_segments import (
+from src.ui.editor.grid_editor_segments import (
     adjacent_segment_start_page,
     layout_state_for_page,
     record_segment_change,
@@ -95,3 +95,5 @@ def test_segment_nav_state_and_adjacent_navigation() -> None:
     assert adjacent_segment_start_page(segments, 0, "next") == 3
     assert adjacent_segment_start_page(segments, 0, "prev") is None
     assert adjacent_segment_start_page(segments, 4, "next") is None
+
+

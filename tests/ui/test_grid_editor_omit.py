@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from src.ui.grid_editor_omit import (
+from src.ui.editor.grid_editor_omit import (
     decide_omit_move,
     decide_omit_release,
     normalized_omit_rect,
@@ -83,3 +83,5 @@ def test_decide_omit_release_non_omit_mode_not_consumed() -> None:
         clamped_release_point=(30, 35),
     )
     assert decision.consumed is False
+
+

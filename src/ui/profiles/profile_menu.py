@@ -13,7 +13,7 @@ from PyQt6.QtWidgets import (
     QWidgetAction,
 )
 
-from src.ui import theme
+from src.ui.style import theme
 
 
 class LayoutMenuRow(QWidget):
@@ -110,3 +110,4 @@ def apply_selected_layout_label(
     if style is not None:
         style.unpolish(button)
         style.polish(button)
+

@@ -5,7 +5,7 @@ from __future__ import annotations
 from PyQt6.QtCore import QPropertyAnimation, QRect, Qt, QTimer
 from PyQt6.QtWidgets import QGraphicsDropShadowEffect, QHBoxLayout, QLabel, QWidget
 
-from src.ui import theme
+from src.ui.style import theme
 
 
 class Toast(QWidget):
@@ -82,3 +82,4 @@ class Toast(QWidget):
         toast._anim = anim
 
         QTimer.singleShot(duration, toast.deleteLater)
+

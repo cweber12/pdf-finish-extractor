@@ -1,4 +1,4 @@
-from src.ui.grid_editor_interaction_flow import (
+from src.ui.editor.grid_editor_interaction_flow import (
     begin_omit_preview,
     hovered_line_from_hit,
     mouse_button_name,
@@ -43,3 +43,5 @@ def test_wheel_zoom_factor() -> None:
     assert wheel_zoom_factor(0) is None
     assert wheel_zoom_factor(120) == 1.15
     assert wheel_zoom_factor(-120) == 1.0 / 1.15
+
+

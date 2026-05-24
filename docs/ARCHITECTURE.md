@@ -14,33 +14,7 @@ pdf-finish-extractor/
 ├── profiles/                 Named grid layouts (JSON). User-managed.
 └── src/
     ├── ui/                   PyQt6 UI layer.
-    │   ├── main_window.py    Compatibility adapter re-exporting shell MainWindow.
-    │   ├── extraction_feedback.py  Compatibility adapter re-exporting feedback helpers.
-    │   ├── extraction_session.py  Compatibility adapter re-exporting runtime extraction session.
-    │   ├── main_window_intents.py  Compatibility adapter re-exporting shell intent helpers.
-    │   ├── profile_menu.py   Compatibility adapter re-exporting profile menu helpers.
-    │   ├── grid_editor.py    Compatibility adapter re-exporting editor grid editor.
-    │   ├── grid_editor_controls.py  Compatibility adapter re-exporting editor controls helpers.
-    │   ├── grid_editor_fields.py  Compatibility adapter re-exporting editor field-recipe helpers.
-    │   ├── grid_editor_geometry.py  Compatibility adapter re-exporting editor geometry helpers.
-    │   ├── grid_editor_grouping.py  Compatibility adapter re-exporting editor grouping helpers.
-    │   ├── grid_editor_hit_test.py  Compatibility adapter re-exporting editor hit-test helpers.
-    │   ├── grid_editor_interaction_flow.py  Compatibility adapter re-exporting editor interaction-flow helpers.
-    │   ├── grid_editor_interaction.py  Compatibility adapter re-exporting editor interaction decision helpers.
-    │   ├── grid_editor_lifecycle.py  Compatibility adapter re-exporting editor lifecycle helpers.
-    │   ├── grid_editor_line_edit.py  Compatibility adapter re-exporting editor line-edit helpers.
-    │   ├── grid_editor_modes.py  Compatibility adapter re-exporting editor mode helpers.
-    │   ├── grid_editor_omit.py  Compatibility adapter re-exporting editor omit helpers.
-    │   ├── grid_editor_overlay.py  Compatibility adapter re-exporting editor overlay module.
-    │   ├── grid_editor_pages.py  Compatibility adapter re-exporting editor page helpers.
-    │   ├── grid_editor_right_click.py  Compatibility adapter re-exporting editor right-click helper.
-    │   ├── grid_editor_segments.py  Compatibility adapter re-exporting editor segment helpers.
-    │   ├── grid_editor_widgets.py  Compatibility adapter re-exporting editor UI primitives.
-    │   ├── pdf_viewer.py     Compatibility adapter re-exporting editor PDF viewer.
-    │   ├── preview_panel.py  Compatibility adapter re-exporting preview panel.
-    │   ├── profile_manager.py  Compatibility adapter re-exporting profile manager.
-    │   ├── theme.py  Compatibility adapter re-exporting style tokens and stylesheet.
-    │   ├── toast.py  Compatibility adapter re-exporting toast widget helper.
+    │   ├── __init__.py       Lazy package exports for top-level UI entrypoints.
     │   ├── shell/
     │   │   ├── main_window.py  Top-level window, toolbar, wires UI components together.
     │   │   └── main_window_intents.py  Pure guard/preflight/message decisions for MainWindow actions.

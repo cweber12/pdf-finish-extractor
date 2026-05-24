@@ -1,5 +1,5 @@
 from src.extraction.grid import OmitRegion
-from src.ui.grid_editor_geometry import (
+from src.ui.editor.grid_editor_geometry import (
     cell_at_orig_point,
     clamped_orig_point,
     grid_orig_boundaries,
@@ -76,3 +76,5 @@ def test_clamped_orig_point_with_page_size() -> None:
 
 def test_clamped_orig_point_without_page_size() -> None:
     assert clamped_orig_point(-5, 10, page_height=None, page_width=None) == (0, 10)
+
+

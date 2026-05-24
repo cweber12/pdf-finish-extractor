@@ -1,5 +1,5 @@
 from src.extraction.grid import CellGroup, FieldDefinition, Grid, OmitRegion
-from src.ui.grid_editor_lifecycle import (
+from src.ui.editor.grid_editor_lifecycle import (
     applied_profile_state,
     baseline_segments,
     cleared_grid_collections,
@@ -87,3 +87,5 @@ def test_interaction_reset_state_returns_cleared_values() -> None:
     assert reset.hovered_line is None
     assert reset.omit_start is None
     assert reset.omit_preview is None
+
+

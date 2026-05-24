@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from src.ui.grid_editor_interaction import (
+from src.ui.editor.grid_editor_interaction import (
     decide_move_action,
     decide_press_action,
     decide_release_action,
@@ -143,3 +143,5 @@ def test_decide_release_action_precedence_and_modes() -> None:
         has_dragging=False,
         is_placing=False,
     ).action == "none"
+
+

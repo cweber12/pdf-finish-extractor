@@ -23,7 +23,7 @@ from PyQt6.QtWidgets import (
 
 from src.common.errors import to_user_message
 from src.extraction.group_projection import projected_field_names
-from src.ui import theme
+from src.ui.style import theme
 
 if TYPE_CHECKING:
     from src.extraction.extractor import ExtractedGroup
@@ -204,3 +204,4 @@ class PreviewPanel(QWidget):
         from src.ui.feedback.toast import Toast
 
         Toast.show_in(cast(QWidget, self.window()), message, success=success)
+

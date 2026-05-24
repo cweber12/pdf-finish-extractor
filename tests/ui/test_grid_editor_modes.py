@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from src.ui.grid_editor_modes import mode_hint, mode_uses_crosshair, resolved_mode
+from src.ui.editor.grid_editor_modes import mode_hint, mode_uses_crosshair, resolved_mode
 
 
 def test_resolved_mode_uses_requested_mode_when_checked() -> None:
@@ -27,3 +27,5 @@ def test_mode_uses_crosshair_for_add_and_omit_modes() -> None:
     assert mode_uses_crosshair("omit") is True
     assert mode_uses_crosshair("idle") is False
     assert mode_uses_crosshair("grouping") is False
+
+

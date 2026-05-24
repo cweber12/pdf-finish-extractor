@@ -4,7 +4,7 @@ from PyQt6.QtCore import QEasingCurve, QEvent, QPropertyAnimation, QSize, Qt
 from PyQt6.QtGui import QColor, QIcon, QMouseEvent
 from PyQt6.QtWidgets import QFrame, QGraphicsDropShadowEffect, QLabel, QToolButton, QWidget
 
-from src.ui import theme
+from src.ui.style import theme
 
 
 class GlowIconButton(QToolButton):
@@ -118,4 +118,5 @@ def make_status_chip(initial: str = "") -> QLabel:
     label.setProperty("class", "statusChip")
     label.setAlignment(Qt.AlignmentFlag.AlignCenter)
     return label
+
 

@@ -7,7 +7,7 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor, QIcon, QPixmap
 from PyQt6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
 
-from src.ui import theme
+from src.ui.style import theme
 from src.ui.editor.grid_editor_widgets import GlowIconButton, make_separator, make_status_chip
 
 if TYPE_CHECKING:
@@ -165,4 +165,5 @@ def build_empty_state(on_open_requested: Callable[[], None]) -> QWidget:
     open_btn.clicked.connect(on_open_requested)
     inner.addWidget(open_btn, alignment=Qt.AlignmentFlag.AlignCenter)
     return widget
+
 

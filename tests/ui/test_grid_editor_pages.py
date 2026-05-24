@@ -1,4 +1,4 @@
-from src.ui.grid_editor_pages import (
+from src.ui.editor.grid_editor_pages import (
     omit_all_pages,
     page_controls_state,
     toggle_omitted_page,
@@ -51,3 +51,5 @@ def test_omit_all_pages_marks_full_range() -> None:
 
 def test_viewing_page_hint() -> None:
     assert viewing_page_hint(0) == "Viewing page 1. Edits apply to this page and forward."
+
+

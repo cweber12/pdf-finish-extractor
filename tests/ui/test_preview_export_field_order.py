@@ -9,7 +9,7 @@ from PyQt6.QtWidgets import QApplication
 
 from src.exporting import export_swatch_workbook
 from src.extraction.extractor import ExtractedFieldValue, ExtractedGroup
-from src.ui.preview_panel import PreviewPanel
+from src.ui.panels.preview_panel import PreviewPanel
 
 
 def _png_bytes(color: tuple[int, int, int]) -> bytes:
@@ -60,3 +60,5 @@ def test_preview_and_export_use_same_first_seen_field_order(
 
     assert preview_headers == ["material_id", "swatch", "description"]
     assert export_headers == preview_headers
+
+

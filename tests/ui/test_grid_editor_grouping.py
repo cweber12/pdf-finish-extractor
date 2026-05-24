@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from src.extraction.grid import CellGroup, FieldDefinition
-from src.ui.grid_editor_grouping import (
+from src.ui.editor.grid_editor_grouping import (
     apply_group_click,
     field_cells_from_pending,
     field_for_click_index,
@@ -99,3 +99,5 @@ def test_apply_group_click_creates_group_on_final_click() -> None:
     )
     assert decision.hint == "Group created. Continue grouping cells or right-click a group to remove it."
     assert decision.record_segment_change is True
+
+

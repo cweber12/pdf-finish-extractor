@@ -2,7 +2,7 @@ import sys
 
 from PyQt6.QtWidgets import QApplication
 
-from src.ui import theme
+from src.ui.style import theme
 from src.ui.shell.main_window import MainWindow
 
 
@@ -17,3 +17,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from src.ui.extraction_session import ExtractionSession
+from src.ui.runtime.extraction_session import ExtractionSession
 
 
 class _FakeWorker:
@@ -72,3 +72,5 @@ def test_on_thread_finished_clears_refs_and_emits_running_false() -> None:
     assert session._worker is None  # noqa: SLF001 - targeted seam contract test
     assert session._thread is None  # noqa: SLF001 - targeted seam contract test
     assert running_events == [False]
+
+

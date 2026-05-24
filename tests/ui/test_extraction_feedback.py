@@ -1,4 +1,4 @@
-from src.ui.extraction_feedback import (
+from src.ui.feedback.extraction_feedback import (
     coerce_extracted_groups,
     extraction_completion_message,
     extraction_failure_toast,
@@ -69,3 +69,5 @@ def test_extraction_failure_toast_truncates_long_detail() -> None:
     long_error = "x" * 130
     assert extraction_failure_toast(long_error) == f"Extraction failed: {'x' * 120}…"
     assert extraction_failure_toast("bad page") == "Extraction failed: bad page"
+
+

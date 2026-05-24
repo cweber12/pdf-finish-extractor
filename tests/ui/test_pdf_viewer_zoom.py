@@ -28,7 +28,7 @@ def viewer(qapp):
     from PyQt6.QtCore import QRect
     from PyQt6.QtGui import QPixmap
 
-    from src.ui.pdf_viewer import PDFViewer
+    from src.ui.editor.pdf_viewer import PDFViewer
 
     v = PDFViewer()
     v._label.setGeometry(QRect(56, 56, LABEL_W, LABEL_H))
@@ -47,7 +47,7 @@ class TestFitScale:
         assert viewer._fit_scale() == pytest.approx(400 / 500)
 
     def test_returns_one_when_no_pixmap(self, qapp):
-        from src.ui.pdf_viewer import PDFViewer
+        from src.ui.editor.pdf_viewer import PDFViewer
 
         v = PDFViewer()
         assert v._fit_scale() == 1.0
@@ -158,3 +158,5 @@ class TestCoordinateRoundTrip:
             # Allow 2-pixel rounding tolerance.
             assert abs(dx2 - dx) <= 2, f"x round-trip failed: {dx} -> {ox} -> {dx2}"
             assert abs(dy2 - dy) <= 2, f"y round-trip failed: {dy} -> {oy} -> {dy2}"
+
+

@@ -19,3 +19,4 @@ def qapp():
     if app is None:
         app = QApplication(sys.argv[:1])
     return app
+

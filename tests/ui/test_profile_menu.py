@@ -5,9 +5,10 @@ import pytest
 pytest.importorskip("PyQt6")
 
 from PyQt6.QtGui import QIcon
-from PyQt6.QtWidgets import QAction, QMenu, QToolButton, QWidgetAction
+from PyQt6.QtGui import QAction
+from PyQt6.QtWidgets import QMenu, QToolButton, QWidgetAction
 
-from src.ui.profile_menu import (
+from src.ui.profiles.profile_menu import (
     LayoutMenuRow,
     apply_selected_layout_label,
     populate_profile_menu,
@@ -86,3 +87,5 @@ def test_apply_selected_layout_label_sets_text_and_property(qapp) -> None:
     apply_selected_layout_label(button, None)
     assert button.text() == "Grid Layouts"
     assert button.property("hasSelection") is False
+
+

@@ -6,7 +6,7 @@ from PyQt6.QtCore import QPoint, QRect, QRectF, Qt
 from PyQt6.QtGui import QBrush, QColor, QFont, QMouseEvent, QPainter, QPen
 from PyQt6.QtWidgets import QWidget
 
-from src.ui import theme
+from src.ui.style import theme
 
 if TYPE_CHECKING:
     from src.extraction.grid import OmitRegion
@@ -315,4 +315,5 @@ def _handle_rects_display(
         )
 
     return rects
+
 

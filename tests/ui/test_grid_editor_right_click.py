@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from src.ui.grid_editor_right_click import decide_right_click
+from src.ui.editor.grid_editor_right_click import decide_right_click
 
 
 def test_omit_mode_removes_region_when_hit() -> None:
@@ -99,3 +99,5 @@ def test_no_action_returns_not_consumed() -> None:
         hit_v_index=None,
     )
     assert decision.consumed is False
+
+

@@ -1,4 +1,4 @@
-from src.ui.main_window_intents import (
+from src.ui.shell.main_window_intents import (
     busy_guard_message,
     extract_preflight_error,
     named_event_message,
@@ -38,3 +38,5 @@ def test_extract_preflight_error_for_missing_profile_only() -> None:
 
 def test_named_event_message() -> None:
     assert named_event_message("Profile saved", "Acme") == "Profile saved: Acme"
+
+

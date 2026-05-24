@@ -19,7 +19,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from src.ui import theme
+from src.ui.style import theme
 from src.ui.feedback.extraction_feedback import (
     coerce_extracted_groups,
     extraction_completion_message,
@@ -402,5 +402,6 @@ class MainWindow(QMainWindow):
         if self._is_extracting():
             self._extraction_session.shutdown(1500)
         super().closeEvent(event)
+
 
 
