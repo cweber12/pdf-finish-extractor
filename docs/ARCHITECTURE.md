@@ -38,7 +38,11 @@ pdf-finish-extractor/
     │   ├── grid_editor_interaction.py  Mouse press/move/release branch-precedence decision helpers.
     │   ├── grid_editor_segments.py  Segment indexing, snapshot updates, and segment-nav state helpers.
     │   ├── preview_panel.py  Shows extracted groups; triggers Excel export.
-    │   └── profile_manager.py  UI-facing adapter over profile persistence.
+    │   ├── profile_manager.py  UI-facing adapter over profile persistence.
+    │   ├── theme.py  Compatibility adapter re-exporting style tokens and stylesheet.
+    │   └── style/
+    │       ├── theme.py  Design tokens, icon path helper, and global stylesheet.
+    │       └── icons/  Bundled SVG assets referenced by the style theme.
     ├── extraction/           Pure extraction logic; no UI, export, or network I/O.
     │   ├── grid.py           Grid data model (lines, field recipe, groups, omit rules).
     │   ├── planner.py        Resolves page-local field rectangles from Grid + segments + omit rules.
