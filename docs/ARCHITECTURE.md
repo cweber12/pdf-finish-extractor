@@ -25,6 +25,7 @@ pdf-finish-extractor/
     │   │   └── preview_panel.py  Shows extracted groups; triggers Excel export.
     │   ├── editor/
     │   │   ├── grid_editor.py  GridEditor state, controls, and interaction handlers.
+    │   │   ├── auto_grouping.py  Vertical auto-group proposal engine, confidence scoring, and commit helpers.
     │   │   ├── grid_editor_controls.py  GridEditor toolbar + empty-state composition helpers.
     │   │   ├── grid_editor_fields.py  Field recipe dialog and confirmation/prompt helpers.
     │   │   ├── grid_editor_geometry.py  Cell/region hit-testing and coordinate boundary helpers.
@@ -155,6 +156,18 @@ Upload code remains available for future reintegration but is not exposed in the
 ### Multi-page extraction
 
 The grid defined on page 1 is applied unchanged to every subsequent page unless layout segments are created by editing the grid on later pages. If a page has fewer filled cells than the grid implies, sparse groups are still emitted as long as at least one field has data.
+
+### Staged vertical auto-grouping
+
+The editor can run an **on-demand auto-group pass** that uses a chosen template segment and proposes per-page vertical alignment adjustments while keeping horizontal column mapping fixed. Proposals are stored in session memory only (not profile JSON), keyed by page index, and contain:
+
+- proposed `groups`
+- proposed `horizontal_lines` / `vertical_lines`
+- confidence score + confidence bucket
+- review status (`pending`, `accepted`, `rejected`)
+- diagnostic notes
+
+Proposals render as a distinct overlay layer and do not affect extraction until committed. Committing accepted proposals writes new page segments (`GridSegment.start_page`) so manual and committed page-specific layouts continue to use the existing planner/segment pipeline unchanged.
 
 ### Page omission and region ignore
 

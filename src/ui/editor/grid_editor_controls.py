@@ -116,6 +116,45 @@ def build_controls(editor: GridEditor) -> None:
     bar.addWidget(make_separator())
     bar.addSpacing(6)
 
+    editor._auto_group_btn = GlowIconButton(
+        "play.svg",
+        "Run vertical auto-group proposals from a template segment.",
+    )
+    editor._auto_group_btn.clicked.connect(editor._run_auto_group)
+    bar.addWidget(editor._auto_group_btn)
+
+    editor._auto_accept_btn = GlowIconButton(
+        "chevrons-right.svg",
+        "Accept all high-confidence auto-group proposals.",
+    )
+    editor._auto_accept_btn.clicked.connect(editor._accept_all_high_confidence_proposals)
+    bar.addWidget(editor._auto_accept_btn)
+
+    editor._auto_commit_btn = GlowIconButton(
+        "save.svg",
+        "Commit accepted auto-group proposals.",
+    )
+    editor._auto_commit_btn.clicked.connect(editor._commit_accepted_proposals)
+    bar.addWidget(editor._auto_commit_btn)
+
+    editor._auto_accept_page_btn = GlowIconButton(
+        "chevron-right.svg",
+        "Accept current page auto-group proposal.",
+    )
+    editor._auto_accept_page_btn.clicked.connect(editor._accept_current_page_proposal)
+    bar.addWidget(editor._auto_accept_page_btn)
+
+    editor._auto_reject_page_btn = GlowIconButton(
+        "close.svg",
+        "Reject current page auto-group proposal.",
+    )
+    editor._auto_reject_page_btn.clicked.connect(editor._reject_current_page_proposal)
+    bar.addWidget(editor._auto_reject_page_btn)
+
+    bar.addSpacing(6)
+    bar.addWidget(make_separator())
+    bar.addSpacing(6)
+
     clear_btn = GlowIconButton(
         "trash.svg",
         "Clear all lines, groups, and omissions for this PDF.",

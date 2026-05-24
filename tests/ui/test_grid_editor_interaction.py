@@ -67,6 +67,16 @@ def test_decide_press_action_mode_fallbacks_without_hits() -> None:
     ).action == "none"
 
 
+def test_decide_press_action_respects_line_drag_lock() -> None:
+    assert decide_press_action(
+        mouse_button="left",
+        mode="grouping",
+        hit_h_index=1,
+        hit_v_index=None,
+        allow_line_drag=False,
+    ).action == "group_click"
+
+
 def test_decide_move_action_precedence() -> None:
     assert decide_move_action(
         has_pan_anchor=True,

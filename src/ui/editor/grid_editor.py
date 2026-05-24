@@ -28,6 +28,7 @@ from PyQt6.QtGui import (
     QWheelEvent,
 )
 from PyQt6.QtWidgets import (
+    QInputDialog,
     QStackedWidget,
     QToolButton,
     QVBoxLayout,
@@ -42,6 +43,14 @@ from src.extraction.grid import (
     OmitRegion,
 )
 from src.ui.editor.grid_editor_controls import build_controls, build_empty_state
+from src.ui.editor.auto_grouping import (
+    AutoGroupProposal,
+    accept_all_high_confidence,
+    build_page_scope,
+    commit_accepted_proposals,
+    run_auto_group_pass,
+    set_proposal_status,
+)
 from src.ui.editor.grid_editor_fields import confirm_field_recipe_change, prompt_field_recipe
 from src.ui.editor.grid_editor_grouping import apply_group_click
 from src.ui.editor.grid_editor_geometry import (
@@ -123,6 +132,7 @@ class GridEditor(QWidget):
         # Each GridSegment records the grid config in effect from its start_page
         # onward.  The entry with the highest start_page <= current page wins.
         self._segments: list[GridSegment] = []
+        self._auto_group_proposals: dict[int, AutoGroupProposal] = {}
 
         # Interaction state
         self._mode: str = "idle"
@@ -184,6 +194,7 @@ class GridEditor(QWidget):
         self._set_hint("Use Rows or Columns to place boundaries on any page. Changes apply to this page and forward.")
         # Reset layout history; current grid applies to all pages until edited.
         self._segments = baseline_segments(self._h_lines, self._v_lines, self._groups)
+        self._auto_group_proposals = {}
         self._update_page_controls()
         self._update_segment_nav()
         self._reposition_overlay()
@@ -218,6 +229,7 @@ class GridEditor(QWidget):
         self._omit_preview = reset.omit_preview
         # Treat the applied profile as the baseline layout for all pages.
         self._segments = baseline_segments(self._h_lines, self._v_lines, self._groups)
+        self._auto_group_proposals = {}
         self._set_hint("Profile applied. Navigate pages to review page/section omissions.")
         self._update_page_controls()
         self._update_segment_nav()
@@ -229,6 +241,9 @@ class GridEditor(QWidget):
     def _regions_for_current_page(self) -> list[OmitRegion]:
         page_index = self.current_page_index()
         return [region for region in self._omit_regions if region.page_index == page_index]
+
+    def _proposal_for_current_page(self) -> AutoGroupProposal | None:
+        return self._auto_group_proposals.get(self.current_page_index())
 
     def _update_page_controls(self) -> None:
         state = page_controls_state(
@@ -427,6 +442,7 @@ class GridEditor(QWidget):
             mode=self._mode,
             hit_h_index=hit_h,
             hit_v_index=hit_v,
+            allow_line_drag=self._mode != "grouping",
         )
 
         if press_decision.action == "right_click":
@@ -731,6 +747,121 @@ class GridEditor(QWidget):
             self._record_segment_change()
         self._overlay.update()
 
+    def _run_auto_group(self) -> None:
+        if self.pdf_path is None or not self._segments:
+            return
+
+        template_options = [f"Page {segment.start_page + 1}" for segment in self._segments]
+        template_choice, template_ok = QInputDialog.getItem(
+            self,
+            "Template Source",
+            "Choose template segment:",
+            template_options,
+            current=self._segment_index_for_page(self.current_page_index()),
+            editable=False,
+        )
+        if not template_ok:
+            return
+        template_segment = self._segments[template_options.index(template_choice)]
+
+        scope_options = ["current page", "page range", "all non-omitted pages"]
+        scope_choice, scope_ok = QInputDialog.getItem(
+            self,
+            "Auto-Group Scope",
+            "Apply auto-group to:",
+            scope_options,
+            current=0,
+            editable=False,
+        )
+        if not scope_ok:
+            return
+
+        scope = "current"
+        range_start: int | None = None
+        range_end: int | None = None
+        if scope_choice == "page range":
+            start, start_ok = QInputDialog.getInt(
+                self,
+                "Page Range",
+                "Start page (1-based):",
+                value=self.current_page_index() + 1,
+                min=1,
+                max=max(1, self._viewer.page_count),
+            )
+            if not start_ok:
+                return
+            end, end_ok = QInputDialog.getInt(
+                self,
+                "Page Range",
+                "End page (1-based):",
+                value=self.current_page_index() + 1,
+                min=1,
+                max=max(1, self._viewer.page_count),
+            )
+            if not end_ok:
+                return
+            scope = "range"
+            range_start = start - 1
+            range_end = end - 1
+        elif scope_choice == "all non-omitted pages":
+            scope = "all"
+
+        pages = build_page_scope(
+            page_count=self._viewer.page_count,
+            scope=scope,
+            current_page_index=self.current_page_index(),
+            omitted_pages=self._omitted_pages,
+            range_start=range_start,
+            range_end=range_end,
+        )
+        result = run_auto_group_pass(
+            pdf_path=self.pdf_path,
+            page_indices=pages,
+            template_page_index=template_segment.start_page,
+            template_segment=template_segment,
+            existing_proposals=self._auto_group_proposals,
+        )
+        for page_index, proposal in result.proposals.items():
+            existing = self._auto_group_proposals.get(page_index)
+            if existing is not None and existing.status in {"accepted", "rejected"}:
+                continue
+            self._auto_group_proposals[page_index] = proposal
+        self._overlay.update()
+
+    def _accept_all_high_confidence_proposals(self) -> None:
+        self._auto_group_proposals = accept_all_high_confidence(self._auto_group_proposals)
+        self._overlay.update()
+
+    def _commit_accepted_proposals(self) -> None:
+        accepted_count = sum(
+            1 for proposal in self._auto_group_proposals.values() if proposal.status == "accepted"
+        )
+        if accepted_count <= 0:
+            return
+        self._segments, self._auto_group_proposals = commit_accepted_proposals(
+            segments=self._segments,
+            proposals=self._auto_group_proposals,
+        )
+        self._load_segment_for_page(self.current_page_index())
+        self._update_segment_nav()
+        self._overlay.update()
+
+    def _accept_current_page_proposal(self) -> None:
+        self._auto_group_proposals = set_proposal_status(
+            self._auto_group_proposals,
+            page_index=self.current_page_index(),
+            status="accepted",
+        )
+        self._overlay.update()
+
+    def _reject_current_page_proposal(self) -> None:
+        self._auto_group_proposals = set_proposal_status(
+            self._auto_group_proposals,
+            page_index=self.current_page_index(),
+            status="rejected",
+        )
+        self._overlay.update()
+
     # ------------------------------------------------------------------
     # Grid management
     # ------------------------------------------------------------------
@@ -769,6 +900,7 @@ class GridEditor(QWidget):
         self._omit_start = reset.omit_start
         self._omit_preview = reset.omit_preview
         self._segments = baseline_segments(self._h_lines, self._v_lines, self._groups)
+        self._auto_group_proposals = {}
         self._update_page_controls()
         self._update_segment_nav()
         self._set_hint("Grid and omissions cleared. Add row and column boundaries to start again.")

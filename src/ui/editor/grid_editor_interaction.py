@@ -40,14 +40,15 @@ def decide_press_action(
     mode: str,
     hit_h_index: int | None,
     hit_v_index: int | None,
+    allow_line_drag: bool = True,
 ) -> PressDecision:
     if mouse_button == "right":
         return PressDecision(action="right_click")
     if mouse_button == "middle":
         return PressDecision(action="begin_pan")
-    if hit_h_index is not None:
+    if allow_line_drag and hit_h_index is not None:
         return PressDecision(action="begin_drag_h")
-    if hit_v_index is not None:
+    if allow_line_drag and hit_v_index is not None:
         return PressDecision(action="begin_drag_v")
     if mode == "add_h":
         return PressDecision(action="begin_place_h")
