@@ -88,6 +88,14 @@ def build_controls(editor: GridEditor) -> None:
     editor._zoom_label.setToolTip("Zoom level — scroll over the page to zoom")
     bar.addWidget(editor._zoom_label)
 
+    editor._auto_page_label = make_status_chip("Auto: none")
+    editor._auto_page_label.setToolTip("Auto-group status for current page")
+    bar.addWidget(editor._auto_page_label)
+
+    editor._auto_summary_label = make_status_chip("P0 A0 R0")
+    editor._auto_summary_label.setToolTip("Auto-group proposal counts (pending/accepted/rejected)")
+    bar.addWidget(editor._auto_summary_label)
+
     bar.addStretch(1)
 
     bar.addWidget(make_separator())

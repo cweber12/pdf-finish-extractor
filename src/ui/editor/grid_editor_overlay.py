@@ -7,7 +7,6 @@ from PyQt6.QtGui import QBrush, QColor, QFont, QMouseEvent, QPainter, QPen
 from PyQt6.QtWidgets import QWidget
 
 from src.ui.style import theme
-from src.ui.editor.grid_editor_geometry import grid_orig_boundaries
 
 if TYPE_CHECKING:
     from src.extraction.grid import OmitRegion
@@ -34,10 +33,6 @@ _OMIT_FILL = QColor(15, 23, 42, 96)
 _OMIT_BORDER = QColor(theme.WARNING)
 _OMIT_PREVIEW_FILL = QColor(245, 158, 11, 48)
 _OMITTED_PAGE_FILL = QColor(15, 23, 42, 122)
-_PROPOSAL_FILL = QColor(16, 185, 129, 52)
-_PROPOSAL_ACCEPTED_FILL = QColor(59, 130, 246, 52)
-_PROPOSAL_REJECTED_FILL = QColor(239, 68, 68, 32)
-_PROPOSAL_BORDER = QColor(16, 185, 129, 180)
 
 _GROUP_FILLS: list[QColor] = [
     QColor(56, 189, 248, 48),
@@ -137,34 +132,6 @@ class _OverlayWidget(QWidget):
         _draw_page_frame(painter, page_rect)
 
         current_page = e.current_page_index()
-        proposal = e._proposal_for_current_page()
-
-        if proposal is not None:
-            ph_d, pv_d = _grid_display_boundaries_for_lines(
-                editor=e,
-                horizontal_lines=proposal.horizontal_lines,
-                vertical_lines=proposal.vertical_lines,
-            )
-            for group in proposal.groups:
-                for cell in group.cells():
-                    r = _cell_rect_display(cell, ph_d, pv_d)
-                    if not r:
-                        continue
-                    fill = _PROPOSAL_FILL
-                    if proposal.status == "accepted":
-                        fill = _PROPOSAL_ACCEPTED_FILL
-                    elif proposal.status == "rejected":
-                        fill = _PROPOSAL_REJECTED_FILL
-                    painter.fillRect(r, fill)
-                    pen = QPen(_PROPOSAL_BORDER, 1, Qt.PenStyle.DashLine)
-                    pen.setCosmetic(True)
-                    painter.setPen(pen)
-                    painter.drawRect(r.adjusted(0, 0, -1, -1))
-            _draw_center_label(
-                painter,
-                page_rect.adjusted(8, 8, -8, -8),
-                f"Auto {proposal.status} ({proposal.confidence_bucket})",
-            )
 
         for idx, group in enumerate(e._groups):
             fill = _GROUP_FILLS[idx % len(_GROUP_FILLS)]
@@ -322,26 +289,6 @@ def _rect_orig_to_display(rect: tuple[int, int, int, int], editor: GridEditor) -
 
 def _omit_region_rect_display(region: OmitRegion, editor: GridEditor) -> QRect | None:
     return _rect_orig_to_display(region.rect, editor)
-
-
-def _grid_display_boundaries_for_lines(
-    *,
-    editor: GridEditor,
-    horizontal_lines: list[int],
-    vertical_lines: list[int],
-) -> tuple[list[int], list[int]]:
-    orig = editor._viewer.pixmap
-    if orig is None:
-        return [0, editor._overlay.height()], [0, editor._overlay.width()]
-    h_orig, v_orig = grid_orig_boundaries(
-        horizontal_lines,
-        vertical_lines,
-        page_height=orig.height(),
-        page_width=orig.width(),
-    )
-    h_d = [editor._o2d(0, y)[1] for y in h_orig]
-    v_d = [editor._o2d(x, 0)[0] for x in v_orig]
-    return h_d, v_d
 
 
 def _handle_rects_display(
