@@ -23,7 +23,7 @@ def __getattr__(name: str) -> object:
 
         return ProfileManager
     if name == "Toast":
-        from src.ui.toast import Toast
+        from src.ui.feedback.toast import Toast
 
         return Toast
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

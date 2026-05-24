@@ -20,7 +20,7 @@ from PyQt6.QtWidgets import (
 )
 
 from src.ui import theme
-from src.ui.extraction_feedback import (
+from src.ui.feedback.extraction_feedback import (
     coerce_extracted_groups,
     extraction_completion_message,
     extraction_failure_toast,
@@ -39,7 +39,7 @@ from src.ui.shell.main_window_intents import (
 from src.ui.profiles.profile_menu import apply_selected_layout_label, populate_profile_menu
 from src.ui.preview_panel import PreviewPanel
 from src.ui.profiles.profile_manager import ProfileManager
-from src.ui.toast import Toast
+from src.ui.feedback.toast import Toast
 
 class MainWindow(QMainWindow):
     def __init__(self) -> None:

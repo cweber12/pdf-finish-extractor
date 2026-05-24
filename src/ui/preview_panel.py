@@ -201,6 +201,6 @@ class PreviewPanel(QWidget):
         return sorted({idx.row() for idx in self._table.selectedIndexes()})
 
     def _show_toast(self, message: str, *, success: bool) -> None:
-        from src.ui.toast import Toast
+        from src.ui.feedback.toast import Toast
 
         Toast.show_in(cast(QWidget, self.window()), message, success=success)
