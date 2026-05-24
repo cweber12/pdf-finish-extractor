@@ -12,6 +12,7 @@ from PIL import Image as PILImage
 
 from src.common.errors import ExportError
 from src.extraction.extractor import ExtractedGroup
+from src.extraction.group_projection import projected_field_names
 
 _HEADER_FILL = PatternFill("solid", fgColor="E2E8F0")
 _COLUMN_FILL = PatternFill("solid", fgColor="CBD5E1")
@@ -39,7 +40,7 @@ def export_swatch_workbook(
         sheet["A2"] = "Category"
         sheet["B2"] = category
 
-        field_names = _field_names(groups)
+        field_names = projected_field_names(groups)
         for column_index, field_name in enumerate(field_names, start=1):
             cell = sheet.cell(row=4, column=column_index, value=field_name)
             cell.font = _BOLD
@@ -78,16 +79,6 @@ def export_swatch_workbook(
             "Could not export to Excel. Close the file if it is open and try again.",
             detail=str(exc),
         ) from exc
-
-
-def _field_names(groups: Sequence[ExtractedGroup]) -> list[str]:
-    names: list[str] = []
-    for group in groups:
-        for name in group.values:
-            if name not in names:
-                names.append(name)
-    return names
-
 
 def _worksheet_image(image_bytes: bytes) -> WorksheetImage | None:
     try:

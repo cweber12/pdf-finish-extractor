@@ -32,6 +32,7 @@ pdf-finish-extractor/
     │   ├── grid.py           Grid data model (lines, field recipe, groups, omit rules).
     │   ├── planner.py        Resolves page-local field rectangles from Grid + segments + omit rules.
     │   ├── field_extractor.py Executes text/image extraction for resolved fields.
+    │   ├── group_projection.py Shared field-order projection helpers used by Preview and Export.
     │   ├── extractor.py      Orchestrates planning + field extraction; returns ExtractedGroup list.
     │   └── image_processing.py  Compresses images to WebP for future upload use.
     ├── exporting/            File export logic; no UI, extraction, or network I/O.

@@ -22,6 +22,7 @@ from PyQt6.QtWidgets import (
 )
 
 from src.common.errors import to_user_message
+from src.extraction.group_projection import projected_field_names
 from src.ui import theme
 
 if TYPE_CHECKING:
@@ -100,7 +101,7 @@ class PreviewPanel(QWidget):
 
     def load(self, groups: list[ExtractedGroup]) -> None:
         self._groups = groups
-        self._field_names = _field_names(groups)
+        self._field_names = projected_field_names(groups)
         self._table.clear()
         self._table.setRowCount(0)
         self._table.setColumnCount(len(self._field_names))
@@ -203,12 +204,3 @@ class PreviewPanel(QWidget):
         from src.ui.toast import Toast
 
         Toast.show_in(cast(QWidget, self.window()), message, success=success)
-
-
-def _field_names(groups: list[ExtractedGroup]) -> list[str]:
-    names: list[str] = []
-    for group in groups:
-        for name in group.values:
-            if name not in names:
-                names.append(name)
-    return names
