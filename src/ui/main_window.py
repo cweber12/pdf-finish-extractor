@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from PyQt6.QtCore import QSize, Qt, pyqtSignal
-from PyQt6.QtGui import QAction, QCloseEvent, QColor, QIcon
+from PyQt6.QtCore import QSize, Qt
+from PyQt6.QtGui import QCloseEvent, QColor, QIcon
 from PyQt6.QtWidgets import (
     QFileDialog,
     QHBoxLayout,
@@ -17,55 +17,15 @@ from PyQt6.QtWidgets import (
     QToolButton,
     QVBoxLayout,
     QWidget,
-    QWidgetAction,
 )
 
 from src.ui import theme
 from src.ui.extraction_session import ExtractionSession
 from src.ui.grid_editor import GlowIconButton, GridEditor
+from src.ui.profile_menu import apply_selected_layout_label, populate_profile_menu
 from src.ui.preview_panel import PreviewPanel
 from src.ui.profile_manager import ProfileManager
 from src.ui.toast import Toast
-
-
-class _LayoutMenuRow(QWidget):
-    """A row in the Grid Layouts dropdown: name on the left, delete (×) on the right."""
-
-    applyRequested = pyqtSignal(str)
-    deleteRequested = pyqtSignal(str)
-
-    def __init__(self, name: str, is_active: bool, parent: QWidget | None = None) -> None:
-        super().__init__(parent)
-        self._name = name
-        self.setObjectName("layoutMenuRow")
-        if is_active:
-            self.setProperty("active", True)
-
-        row = QHBoxLayout(self)
-        row.setContentsMargins(6, 2, 6, 2)
-        row.setSpacing(6)
-
-        self._apply_btn = QPushButton(name)
-        self._apply_btn.setObjectName("layoutApplyBtn")
-        if is_active:
-            self._apply_btn.setProperty("active", True)
-        self._apply_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._apply_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self._apply_btn.setToolTip(f"Apply layout '{name}' to the current PDF.")
-        self._apply_btn.clicked.connect(lambda: self.applyRequested.emit(self._name))
-        row.addWidget(self._apply_btn, stretch=1)
-
-        self._delete_btn = QToolButton()
-        self._delete_btn.setObjectName("layoutDeleteBtn")
-        self._delete_btn.setIcon(QIcon(theme.icon_path("trash.svg")))
-        self._delete_btn.setIconSize(QSize(14, 14))
-        self._delete_btn.setToolTip(f"Delete the saved layout '{name}'.")
-        self._delete_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._delete_btn.setAutoRaise(True)
-        self._delete_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self._delete_btn.clicked.connect(lambda: self.deleteRequested.emit(self._name))
-        row.addWidget(self._delete_btn)
-
 
 class MainWindow(QMainWindow):
     def __init__(self) -> None:
@@ -300,18 +260,7 @@ class MainWindow(QMainWindow):
         Toast.show_in(self.window(), f"Profile saved: {saved_name}", success=True)
 
     def _set_selected_layout_label(self, name: str | None) -> None:
-        """Reflect the active grid layout on the dropdown button."""
-        if name:
-            self._profile_button.setText(name)
-            self._profile_button.setProperty("hasSelection", True)
-        else:
-            self._profile_button.setText("Grid Layouts")
-            self._profile_button.setProperty("hasSelection", False)
-        # Re-evaluate the stylesheet so the hasSelection variant takes effect.
-        style = self._profile_button.style()
-        if style is not None:
-            style.unpolish(self._profile_button)
-            style.polish(self._profile_button)
+        apply_selected_layout_label(self._profile_button, name)
 
     def _on_extract(self) -> None:
         if self._is_extracting():
@@ -376,34 +325,16 @@ class MainWindow(QMainWindow):
         if not hasattr(self, "_profile_menu"):
             return
 
-        self._profile_menu.clear()
-        profile_names = self._profile_manager.list_profiles()
-
-        if not profile_names:
-            empty_action = QAction("No saved layouts yet", self)
-            empty_action.setEnabled(False)
-            self._profile_menu.addAction(empty_action)
-        else:
-            for name in profile_names:
-                row = _LayoutMenuRow(
-                    name,
-                    is_active=(name == self._selected_profile_name),
-                    parent=self._profile_menu,
-                )
-                row.applyRequested.connect(self._on_profile_row_apply)
-                row.deleteRequested.connect(self._on_profile_row_delete)
-                action = QWidgetAction(self._profile_menu)
-                action.setDefaultWidget(row)
-                self._profile_menu.addAction(action)
-
-        self._profile_menu.addSeparator()
-        save_action = QAction(
-            QIcon(theme.icon_path("save.svg")),
-            "Save current grid as layout…",
-            self,
+        populate_profile_menu(
+            self._profile_menu,
+            profile_names=self._profile_manager.list_profiles(),
+            selected_profile_name=self._selected_profile_name,
+            on_apply=self._on_profile_row_apply,
+            on_delete=self._on_profile_row_delete,
+            on_save=self._on_save_profile,
+            owner=self,
+            save_icon=QIcon(theme.icon_path("save.svg")),
         )
-        save_action.triggered.connect(self._on_save_profile)
-        self._profile_menu.addAction(save_action)
 
     def _on_profile_row_apply(self, name: str) -> None:
         self._profile_menu.close()

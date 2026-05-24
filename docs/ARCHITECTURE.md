@@ -16,6 +16,7 @@ pdf-finish-extractor/
     ├── ui/                   PyQt6 UI layer.
     │   ├── main_window.py    Top-level window, toolbar, wires UI components together.
     │   ├── extraction_session.py  QThread extraction lifecycle seam used by MainWindow.
+    │   ├── profile_menu.py   Grid layout dropdown row widget + menu population helpers.
     │   ├── pdf_viewer.py     Renders a PDF page to QPixmap via PyMuPDF.
     │   ├── grid_editor.py    GridEditor state, controls, and interaction handlers.
     │   ├── grid_editor_overlay.py  Overlay rendering + pointer event forwarding seam for GridEditor.
