@@ -63,6 +63,12 @@ from src.extraction.grid import (
 )
 from src.ui import theme
 from src.ui.grid_editor_grouping import apply_group_click
+from src.ui.grid_editor_geometry import (
+    cell_at_orig_point,
+    clamped_orig_point,
+    grid_orig_boundaries,
+    omit_region_index_at_orig_point,
+)
 from src.ui.grid_editor_interaction import (
     decide_move_action,
     decide_press_action,
@@ -704,9 +710,12 @@ class GridEditor(QWidget):
         orig = self._viewer.pixmap
         if orig is None:
             return [0, self._overlay.height()], [0, self._overlay.width()]
-        ph, pw = orig.height(), orig.width()
-        h_orig = [0] + sorted(self._h_lines) + [ph]
-        v_orig = [0] + sorted(self._v_lines) + [pw]
+        h_orig, v_orig = grid_orig_boundaries(
+            self._h_lines,
+            self._v_lines,
+            page_height=orig.height(),
+            page_width=orig.width(),
+        )
         h_d = [self._o2d(0, y)[1] for y in h_orig]
         v_d = [self._o2d(x, 0)[0] for x in v_orig]
         return h_d, v_d
@@ -715,35 +724,30 @@ class GridEditor(QWidget):
         orig = self._viewer.pixmap
         if orig is None:
             return None
-        ph, pw = orig.height(), orig.width()
-        if ox < 0 or oy < 0 or ox >= pw or oy >= ph:
-            return None
-        h = [0] + sorted(self._h_lines) + [ph]
-        v = [0] + sorted(self._v_lines) + [pw]
-        for ri in range(len(h) - 1):
-            if h[ri] <= oy < h[ri + 1]:
-                for ci in range(len(v) - 1):
-                    if v[ci] <= ox < v[ci + 1]:
-                        return (ri, ci)
-        return None
+        return cell_at_orig_point(
+            ox,
+            oy,
+            page_height=orig.height(),
+            page_width=orig.width(),
+            horizontal_lines=self._h_lines,
+            vertical_lines=self._v_lines,
+        )
 
     def _omit_region_at_orig(self, ox: int, oy: int) -> int | None:
-        for idx in range(len(self._omit_regions) - 1, -1, -1):
-            region = self._omit_regions[idx]
-            if region.page_index != self.current_page_index():
-                continue
-            x0, y0, x1, y1 = region.rect
-            if x0 <= ox <= x1 and y0 <= oy <= y1:
-                return idx
-        return None
+        return omit_region_index_at_orig_point(
+            ox,
+            oy,
+            regions=self._omit_regions,
+            page_index=self.current_page_index(),
+        )
 
     def _clamped_orig_point(self, ox: int, oy: int) -> tuple[int, int]:
         orig = self._viewer.pixmap
-        if orig is None:
-            return max(0, ox), max(0, oy)
-        return (
-            max(0, min(orig.width(), ox)),
-            max(0, min(orig.height(), oy)),
+        return clamped_orig_point(
+            ox,
+            oy,
+            page_height=None if orig is None else orig.height(),
+            page_width=None if orig is None else orig.width(),
         )
 
     def _line_hit(self, dx: int, dy: int) -> tuple[int | None, int | None]:
