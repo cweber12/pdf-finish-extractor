@@ -63,6 +63,7 @@ from src.extraction.grid import (
 )
 from src.ui import theme
 from src.ui.grid_editor_grouping import apply_group_click
+from src.ui.grid_editor_interaction import decide_move_action, decide_release_action
 from src.ui.grid_editor_line_edit import apply_line_placement, bounded_line_value, can_place_line
 from src.ui.grid_editor_modes import mode_hint, mode_uses_crosshair, resolved_mode
 from src.ui.grid_editor_omit import decide_omit_move, decide_omit_release
@@ -877,8 +878,14 @@ class GridEditor(QWidget):
     def _on_move(self, event: QMouseEvent) -> None:
         pos = event.position().toPoint()
         dx, dy = pos.x(), pos.y()
+        decision = decide_move_action(
+            has_pan_anchor=self._pan_last is not None,
+            has_dragging=self._dragging is not None,
+            has_omit_drag=self._omit_start is not None and self._mode == "omit",
+            is_placing=self._placing,
+        )
 
-        if self._pan_last is not None:
+        if decision.action == "pan":
             ddx = dx - self._pan_last.x()
             ddy = dy - self._pan_last.y()
             self._viewer.pan_by(ddx, ddy)
@@ -888,7 +895,7 @@ class GridEditor(QWidget):
 
         ox, oy = self._d2o(dx, dy)
 
-        if self._dragging:
+        if decision.action == "drag_line":
             dtype, idx = self._dragging
             if dtype == "h":
                 self._h_lines[idx] = self._bounded_line_value("h", idx, oy)
@@ -897,7 +904,7 @@ class GridEditor(QWidget):
             self._overlay.update()
             return
 
-        if self._omit_start is not None and self._mode == "omit":
+        if decision.action == "omit_drag":
             decision = decide_omit_move(
                 mode=self._mode,
                 omit_start=self._omit_start,
@@ -909,7 +916,7 @@ class GridEditor(QWidget):
             self._overlay.update()
             return
 
-        if self._placing:
+        if decision.action == "placing_preview":
             self._preview = max(0, oy if self._mode == "add_h" else ox)
             self._overlay.update()
             return
@@ -944,15 +951,33 @@ class GridEditor(QWidget):
         self._overlay.update()
 
     def _on_release(self, event: QMouseEvent) -> None:
-        if event.button() == Qt.MouseButton.MiddleButton:
+        mouse_button = event.button()
+        if mouse_button == Qt.MouseButton.LeftButton:
+            button_name = "left"
+        elif mouse_button == Qt.MouseButton.MiddleButton:
+            button_name = "middle"
+        elif mouse_button == Qt.MouseButton.RightButton:
+            button_name = "right"
+        else:
+            button_name = "other"
+
+        release_decision = decide_release_action(
+            mouse_button=button_name,
+            mode=self._mode,
+            has_omit_start=self._omit_start is not None,
+            has_dragging=self._dragging is not None,
+            is_placing=self._placing,
+        )
+
+        if release_decision.action == "end_pan":
             self._pan_last = None
             self._update_cursor(None, None)
             return
 
-        if event.button() != Qt.MouseButton.LeftButton:
+        if release_decision.action == "ignore":
             return
 
-        if self._omit_start is not None and self._mode == "omit":
+        if release_decision.action == "omit_release":
             decision = decide_omit_release(
                 mode=self._mode,
                 omit_start=self._omit_start,
@@ -976,7 +1001,7 @@ class GridEditor(QWidget):
             self._overlay.update()
             return
 
-        if self._dragging:
+        if release_decision.action == "finalize_drag":
             self._h_lines.sort()
             self._v_lines.sort()
             self._dragging = None
@@ -985,7 +1010,7 @@ class GridEditor(QWidget):
             self._record_segment_change()
             return
 
-        if self._placing:
+        if release_decision.action == "finalize_placing":
             orig = self._viewer.pixmap
             max_height = None if orig is None else orig.height()
             max_width = None if orig is None else orig.width()
