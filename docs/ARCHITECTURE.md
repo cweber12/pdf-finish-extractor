@@ -37,7 +37,7 @@ pdf-finish-extractor/
     │   ├── grid_editor_omit.py  Omit-region move/release decisions and rectangle normalization helpers.
     │   ├── grid_editor_interaction.py  Mouse press/move/release branch-precedence decision helpers.
     │   ├── grid_editor_segments.py  Segment indexing, snapshot updates, and segment-nav state helpers.
-    │   ├── preview_panel.py  Shows extracted groups; triggers Excel export.
+    │   ├── preview_panel.py  Compatibility adapter re-exporting preview panel.
     │   ├── profile_manager.py  Compatibility adapter re-exporting profile manager.
     │   ├── theme.py  Compatibility adapter re-exporting style tokens and stylesheet.
     │   ├── toast.py  Compatibility adapter re-exporting toast widget helper.
@@ -47,6 +47,8 @@ pdf-finish-extractor/
     │   ├── feedback/
     │   │   ├── extraction_feedback.py  Pure helpers for extraction progress/status/toast decisions.
     │   │   └── toast.py  Toast presenter widget helper.
+    │   ├── panels/
+    │   │   └── preview_panel.py  Shows extracted groups; triggers Excel export.
     │   ├── runtime/
     │   │   └── extraction_session.py  QThread extraction lifecycle seam used by MainWindow.
     │   ├── profiles/

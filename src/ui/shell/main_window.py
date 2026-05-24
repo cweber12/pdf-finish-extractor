@@ -37,7 +37,7 @@ from src.ui.shell.main_window_intents import (
     save_profile_preflight_error,
 )
 from src.ui.profiles.profile_menu import apply_selected_layout_label, populate_profile_menu
-from src.ui.preview_panel import PreviewPanel
+from src.ui.panels.preview_panel import PreviewPanel
 from src.ui.profiles.profile_manager import ProfileManager
 from src.ui.feedback.toast import Toast
 

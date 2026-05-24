@@ -15,7 +15,7 @@ def __getattr__(name: str) -> object:
 
         return GridEditor
     if name == "PreviewPanel":
-        from src.ui.preview_panel import PreviewPanel
+        from src.ui.panels.preview_panel import PreviewPanel
 
         return PreviewPanel
     if name == "ProfileManager":
