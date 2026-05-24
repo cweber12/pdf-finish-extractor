@@ -68,6 +68,13 @@ from src.ui.grid_editor_interaction import (
     decide_press_action,
     decide_release_action,
 )
+from src.ui.grid_editor_lifecycle import (
+    applied_profile_state,
+    baseline_segments,
+    cleared_grid_collections,
+    interaction_reset_state,
+    profile_from_editor_state,
+)
 from src.ui.grid_editor_line_edit import apply_line_placement, bounded_line_value, can_place_line
 from src.ui.grid_editor_modes import mode_hint, mode_uses_crosshair, resolved_mode
 from src.ui.grid_editor_omit import decide_omit_move, decide_omit_release
@@ -589,26 +596,19 @@ class GridEditor(QWidget):
         self._stack.setCurrentIndex(1)
         self._set_hint("Use Rows or Columns to place boundaries on any page. Changes apply to this page and forward.")
         # Reset layout history; current grid applies to all pages until edited.
-        self._segments = [GridSegment(
-            start_page=0,
-            horizontal_lines=list(self._h_lines),
-            vertical_lines=list(self._v_lines),
-            groups=list(self._groups),
-        )]
+        self._segments = baseline_segments(self._h_lines, self._v_lines, self._groups)
         self._update_page_controls()
         self._update_segment_nav()
         self._reposition_overlay()
 
     def current_profile(self) -> Grid | None:
-        if not self._h_lines and not self._v_lines:
-            return None
-        return Grid(
-            horizontal_lines=sorted(self._h_lines),
-            vertical_lines=sorted(self._v_lines),
-            fields=list(self._fields),
-            groups=list(self._groups),
-            omitted_pages=sorted(self._omitted_pages),
-            omit_regions=list(self._omit_regions),
+        return profile_from_editor_state(
+            horizontal_lines=self._h_lines,
+            vertical_lines=self._v_lines,
+            fields=self._fields,
+            groups=self._groups,
+            omitted_pages=self._omitted_pages,
+            omit_regions=self._omit_regions,
         )
 
     def current_segments(self) -> list[GridSegment]:
@@ -616,24 +616,21 @@ class GridEditor(QWidget):
         return list(self._segments)
 
     def apply_profile(self, grid: Grid) -> None:
-        self._h_lines = sorted(grid.horizontal_lines)
-        self._v_lines = sorted(grid.vertical_lines)
-        self._fields = list(grid.fields)
-        self._groups = list(grid.groups)
-        self._omitted_pages = set(grid.omitted_pages)
-        self._omit_regions = list(grid.omit_regions)
-        self._pending_group_cells = []
-        self._hovered_cell = None
-        self._hovered_line = None
-        self._omit_start = None
-        self._omit_preview = None
+        state = applied_profile_state(grid)
+        self._h_lines = state.horizontal_lines
+        self._v_lines = state.vertical_lines
+        self._fields = state.fields
+        self._groups = state.groups
+        self._omitted_pages = state.omitted_pages
+        self._omit_regions = state.omit_regions
+        reset = interaction_reset_state()
+        self._pending_group_cells = reset.pending_group_cells
+        self._hovered_cell = reset.hovered_cell
+        self._hovered_line = reset.hovered_line
+        self._omit_start = reset.omit_start
+        self._omit_preview = reset.omit_preview
         # Treat the applied profile as the baseline layout for all pages.
-        self._segments = [GridSegment(
-            start_page=0,
-            horizontal_lines=list(self._h_lines),
-            vertical_lines=list(self._v_lines),
-            groups=list(self._groups),
-        )]
+        self._segments = baseline_segments(self._h_lines, self._v_lines, self._groups)
         self._set_hint("Profile applied. Navigate pages to review page/section omissions.")
         self._update_page_controls()
         self._update_segment_nav()
@@ -1213,17 +1210,20 @@ class GridEditor(QWidget):
         self._pending_group_cells = []
 
     def _clear_grid(self) -> None:
-        self._h_lines.clear()
-        self._v_lines.clear()
-        self._groups.clear()
-        self._omitted_pages.clear()
-        self._omit_regions.clear()
-        self._pending_group_cells = []
-        self._hovered_cell = None
-        self._hovered_line = None
-        self._omit_start = None
-        self._omit_preview = None
-        self._segments = [GridSegment(start_page=0)]
+        (
+            self._h_lines,
+            self._v_lines,
+            self._groups,
+            self._omitted_pages,
+            self._omit_regions,
+        ) = cleared_grid_collections()
+        reset = interaction_reset_state()
+        self._pending_group_cells = reset.pending_group_cells
+        self._hovered_cell = reset.hovered_cell
+        self._hovered_line = reset.hovered_line
+        self._omit_start = reset.omit_start
+        self._omit_preview = reset.omit_preview
+        self._segments = baseline_segments(self._h_lines, self._v_lines, self._groups)
         self._update_page_controls()
         self._update_segment_nav()
         self._set_hint("Grid and omissions cleared. Add row and column boundaries to start again.")
