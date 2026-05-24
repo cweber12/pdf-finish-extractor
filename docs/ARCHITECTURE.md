@@ -23,6 +23,10 @@ pdf-finish-extractor/
     │   ├── grid_editor_pages.py  Page navigation/omission control state + hint decision helpers.
     │   ├── grid_editor_geometry.py  Cell/region hit-testing and coordinate boundary helpers.
     │   ├── grid_editor_hit_test.py  Line/handle hit precedence and visible-page drag targeting helpers.
+    │   ├── grid_editor_interaction_flow.py  Shared interaction-flow helpers for mouse/zoom event wiring.
+    │   ├── grid_editor_fields.py  Field recipe dialog and confirmation/prompt helpers.
+    │   ├── grid_editor_controls.py  GridEditor toolbar + empty-state composition helpers.
+    │   ├── grid_editor_widgets.py  Reusable GridEditor UI primitives (glow button, separators, status chips).
     │   ├── pdf_viewer.py     Renders a PDF page to QPixmap via PyMuPDF.
     │   ├── grid_editor.py    GridEditor state, controls, and interaction handlers.
     │   ├── grid_editor_overlay.py  Overlay rendering + pointer event forwarding seam for GridEditor.

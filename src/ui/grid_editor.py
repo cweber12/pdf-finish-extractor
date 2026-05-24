@@ -18,36 +18,17 @@ coordinate system used by the Extractor.
 from __future__ import annotations
 
 from PyQt6.QtCore import (
-    QEasingCurve,
-    QEvent,
     QPoint,
-    QPropertyAnimation,
     QRect,
-    QSize,
     Qt,
     pyqtSignal,
 )
 from PyQt6.QtGui import (
-    QColor,
-    QIcon,
     QMouseEvent,
-    QPixmap,
     QWheelEvent,
 )
 from PyQt6.QtWidgets import (
-    QComboBox,
-    QDialog,
-    QDialogButtonBox,
-    QFrame,
-    QGraphicsDropShadowEffect,
-    QHBoxLayout,
-    QLabel,
-    QMessageBox,
-    QPushButton,
-    QSpinBox,
     QStackedWidget,
-    QTableWidget,
-    QTableWidgetItem,
     QToolButton,
     QVBoxLayout,
     QWidget,
@@ -60,7 +41,8 @@ from src.extraction.grid import (
     GridSegment,
     OmitRegion,
 )
-from src.ui import theme
+from src.ui.grid_editor_controls import build_controls, build_empty_state
+from src.ui.grid_editor_fields import confirm_field_recipe_change, prompt_field_recipe
 from src.ui.grid_editor_grouping import apply_group_click
 from src.ui.grid_editor_geometry import (
     cell_at_orig_point,
@@ -69,6 +51,14 @@ from src.ui.grid_editor_geometry import (
     omit_region_index_at_orig_point,
 )
 from src.ui.grid_editor_hit_test import resolve_line_hit
+from src.ui.grid_editor_interaction_flow import (
+    begin_omit_preview,
+    hovered_line_from_hit,
+    mouse_button_name,
+    placing_preview_value,
+    should_reset_zoom_interaction,
+    wheel_zoom_factor,
+)
 from src.ui.grid_editor_interaction import (
     decide_move_action,
     decide_press_action,
@@ -99,247 +89,11 @@ from src.ui.grid_editor_segments import (
     segment_index_for_page,
     segment_nav_state,
 )
+from src.ui.grid_editor_widgets import GlowIconButton
 from src.ui.pdf_viewer import PDFViewer
 
 _LINE_HIT_DIST = 5
 _MIN_LINE_GAP_ORIG = 3
-
-# ------------------------------------------------------------------
-# Glowing icon button
-# ------------------------------------------------------------------
-
-
-class GlowIconButton(QToolButton):
-    """Icon-only action button with an animated outer glow.
-
-    The button has no label; identification is purely via tooltip. A drop
-    shadow effect provides the glow, with the blur radius animated on
-    hover/press/checked transitions so the affordance feels responsive
-    without resorting to bright background fills.
-    """
-
-    _IDLE_BLUR = 0.0
-    _HOVER_BLUR = 18.0
-    _PRESS_BLUR = 28.0
-    _CHECKED_BLUR = 14.0
-
-    def __init__(
-        self,
-        icon_name: str,
-        tooltip: str,
-        glow_color: QColor | None = None,
-        checkable: bool = False,
-        parent: QWidget | None = None,
-    ) -> None:
-        super().__init__(parent)
-        self.setIcon(QIcon(theme.icon_path(icon_name)))
-        self.setIconSize(QSize(18, 18))
-        self.setToolTip(tooltip)
-        self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.setAutoRaise(True)
-        self.setCheckable(checkable)
-        self.setProperty("class", "iconAction")
-        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-
-        base = QColor(glow_color) if glow_color is not None else QColor(theme.ACCENT)
-        base.setAlpha(220)
-        self._glow_color = base
-
-        self._glow = QGraphicsDropShadowEffect(self)
-        self._glow.setColor(self._glow_color)
-        self._glow.setBlurRadius(self._IDLE_BLUR)
-        self._glow.setOffset(0, 0)
-        self.setGraphicsEffect(self._glow)
-
-        self._anim = QPropertyAnimation(self._glow, b"blurRadius", self)
-        self._anim.setEasingCurve(QEasingCurve.Type.OutCubic)
-
-        self._hovered = False
-        self._pressed = False
-
-        if checkable:
-            self.toggled.connect(self._on_toggled)
-
-    # -- glow state ----------------------------------------------------
-    def _target_blur(self) -> float:
-        if not self.isEnabled():
-            return self._IDLE_BLUR
-        if self._pressed:
-            return self._PRESS_BLUR
-        if self._hovered:
-            return self._HOVER_BLUR
-        if self.isChecked():
-            return self._CHECKED_BLUR
-        return self._IDLE_BLUR
-
-    def _animate_to(self, target: float, duration: int = 180) -> None:
-        self._anim.stop()
-        self._anim.setDuration(duration)
-        self._anim.setStartValue(self._glow.blurRadius())
-        self._anim.setEndValue(target)
-        self._anim.start()
-
-    def _on_toggled(self, _checked: bool) -> None:
-        self._animate_to(self._target_blur())
-
-    # -- events --------------------------------------------------------
-    def enterEvent(self, event) -> None:  # noqa: ANN001
-        self._hovered = True
-        self._animate_to(self._target_blur())
-        super().enterEvent(event)
-
-    def leaveEvent(self, event) -> None:  # noqa: ANN001
-        self._hovered = False
-        self._animate_to(self._target_blur())
-        super().leaveEvent(event)
-
-    def mousePressEvent(self, event: QMouseEvent) -> None:
-        if event.button() == Qt.MouseButton.LeftButton:
-            self._pressed = True
-            self._animate_to(self._target_blur(), duration=80)
-        super().mousePressEvent(event)
-
-    def mouseReleaseEvent(self, event: QMouseEvent) -> None:
-        if event.button() == Qt.MouseButton.LeftButton:
-            self._pressed = False
-            self._animate_to(self._target_blur(), duration=140)
-        super().mouseReleaseEvent(event)
-
-    def changeEvent(self, event) -> None:  # noqa: ANN001
-        super().changeEvent(event)
-        if event.type() == QEvent.Type.EnabledChange:
-            if not self.isEnabled():
-                self._hovered = False
-                self._pressed = False
-            self._animate_to(self._target_blur(), duration=120)
-
-
-def _make_separator() -> QFrame:
-    sep = QFrame()
-    sep.setObjectName("toolbarSeparator")
-    sep.setFrameShape(QFrame.Shape.NoFrame)
-    sep.setFixedWidth(1)
-    sep.setFixedHeight(22)
-    return sep
-
-
-def _make_status_chip(initial: str = "") -> QLabel:
-    label = QLabel(initial)
-    label.setProperty("class", "statusChip")
-    label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-    return label
-
-
-class _FieldRecipeDialog(QDialog):
-    """Dialog for editing the ordered extraction field recipe."""
-
-    def __init__(self, fields: list[FieldDefinition], parent: QWidget | None = None) -> None:
-        super().__init__(parent)
-        self.setWindowTitle("Fields")
-        self._table = QTableWidget(0, 3)
-        self._table.setHorizontalHeaderLabels(["Name", "Type", "Clicks"])
-        header = self._table.horizontalHeader()
-        if header is not None:
-            header.setStretchLastSection(True)
-        self._table.verticalHeader().setVisible(False)
-        self._table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
-        self._table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
-
-        for field_def in fields:
-            self._append_row(field_def)
-
-        add_text = QPushButton("Add Text")
-        add_text.clicked.connect(lambda: self._append_row(FieldDefinition("field", "text", 1)))
-        add_image = QPushButton("Add Image")
-        add_image.clicked.connect(lambda: self._append_row(FieldDefinition("image", "image", 1)))
-        remove = QPushButton("Remove")
-        remove.clicked.connect(self._remove_selected)
-        up = QPushButton("Up")
-        up.clicked.connect(lambda: self._move_selected(-1))
-        down = QPushButton("Down")
-        down.clicked.connect(lambda: self._move_selected(1))
-
-        tools = QHBoxLayout()
-        tools.addWidget(add_text)
-        tools.addWidget(add_image)
-        tools.addWidget(remove)
-        tools.addStretch()
-        tools.addWidget(up)
-        tools.addWidget(down)
-
-        buttons = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
-        )
-        buttons.accepted.connect(self.accept)
-        buttons.rejected.connect(self.reject)
-
-        layout = QVBoxLayout(self)
-        layout.addWidget(self._table)
-        layout.addLayout(tools)
-        layout.addWidget(buttons)
-        self.resize(520, 320)
-
-    def fields(self) -> list[FieldDefinition]:
-        result: list[FieldDefinition] = []
-        seen: set[str] = set()
-        for row in range(self._table.rowCount()):
-            name_item = self._table.item(row, 0)
-            name = name_item.text().strip() if name_item else ""
-            if not name or name in seen:
-                continue
-            type_widget = self._table.cellWidget(row, 1)
-            click_widget = self._table.cellWidget(row, 2)
-            field_type = "text"
-            if isinstance(type_widget, QComboBox):
-                field_type = type_widget.currentText().lower()
-            click_count = 1
-            if isinstance(click_widget, QSpinBox):
-                click_count = click_widget.value()
-            seen.add(name)
-            result.append(FieldDefinition(name=name, field_type=field_type, click_count=click_count))  # type: ignore[arg-type]
-        return result
-
-    def _append_row(self, field_def: FieldDefinition) -> None:
-        row = self._table.rowCount()
-        self._table.insertRow(row)
-        self._table.setItem(row, 0, QTableWidgetItem(field_def.name))
-
-        type_box = QComboBox()
-        type_box.addItems(["text", "image"])
-        type_box.setCurrentText(field_def.field_type)
-        self._table.setCellWidget(row, 1, type_box)
-
-        clicks = QSpinBox()
-        clicks.setRange(1, 20)
-        clicks.setValue(max(1, field_def.click_count))
-        self._table.setCellWidget(row, 2, clicks)
-        self._table.selectRow(row)
-
-    def _remove_selected(self) -> None:
-        row = self._selected_row()
-        if row is not None:
-            self._table.removeRow(row)
-
-    def _move_selected(self, delta: int) -> None:
-        row = self._selected_row()
-        if row is None:
-            return
-        target = row + delta
-        if target < 0 or target >= self._table.rowCount():
-            return
-        current = self.fields()
-        current[row], current[target] = current[target], current[row]
-        self._table.setRowCount(0)
-        for field_def in current:
-            self._append_row(field_def)
-        self._table.selectRow(target)
-
-    def _selected_row(self) -> int | None:
-        indexes = self._table.selectionModel().selectedRows()
-        if not indexes:
-            return None
-        return indexes[0].row()
-
 
 # ------------------------------------------------------------------
 # Grid editor
@@ -386,185 +140,12 @@ class GridEditor(QWidget):
 
         self._viewer = PDFViewer()
         self._overlay = _OverlayWidget(self)
-        self._build_controls()
+        build_controls(self)
         self._build_layout()
 
     # ------------------------------------------------------------------
     # Layout
     # ------------------------------------------------------------------
-
-    def _build_controls(self) -> None:
-        self._ctrl_bar = QWidget()
-        self._ctrl_bar.setObjectName("controlBar")
-        bar = QHBoxLayout(self._ctrl_bar)
-        bar.setContentsMargins(18, 0, 18, 0)
-        bar.setSpacing(10)
-
-        warn_color = QColor(theme.WARNING)
-        danger_color = QColor(theme.ERROR)
-
-        # --- Tool group: row / column / group / ignore area ---
-        modes = [
-            ("h-line.svg", "add_h", "Add a horizontal row boundary. Click-drag across the page."),
-            ("v-line.svg", "add_v", "Add a vertical column boundary. Click-drag across the page."),
-            ("link.svg", "grouping", "Create a group by clicking cells in field order."),
-            ("omit-area.svg", "omit", "Ignore an area on this page. Click-drag the region to skip."),
-        ]
-        for icon_name, mode, tooltip in modes:
-            glow = QColor(warn_color) if mode == "omit" else None
-            btn = GlowIconButton(icon_name, tooltip, glow_color=glow, checkable=True)
-            if mode == "omit":
-                btn.setProperty("warn", True)
-            btn.clicked.connect(lambda _checked, m=mode, b=btn: self._set_mode(m, b))
-            setattr(self, f"_btn_{mode}", btn)
-            bar.addWidget(btn)
-
-        bar.addSpacing(6)
-        bar.addWidget(_make_separator())
-        bar.addSpacing(6)
-
-        self._fields_btn = GlowIconButton(
-            "layers.svg",
-            "Define extraction fields, types, click counts, and column order.",
-        )
-        self._fields_btn.clicked.connect(self._edit_fields)
-        bar.addWidget(self._fields_btn)
-
-        bar.addSpacing(6)
-        bar.addWidget(_make_separator())
-        bar.addSpacing(6)
-
-        # --- Page navigation: prev / [page chip] / next ---
-        self._prev_page_btn = GlowIconButton(
-            "chevron-left.svg",
-            "Previous page",
-        )
-        self._prev_page_btn.clicked.connect(
-            lambda: self._go_to_page(self.current_page_index() - 1)
-        )
-        bar.addWidget(self._prev_page_btn)
-
-        self._page_label = _make_status_chip("—/—")
-        self._page_label.setToolTip("Current page")
-        bar.addWidget(self._page_label)
-
-        self._next_page_btn = GlowIconButton(
-            "chevron-right.svg",
-            "Next page",
-        )
-        self._next_page_btn.clicked.connect(
-            lambda: self._go_to_page(self.current_page_index() + 1)
-        )
-        bar.addWidget(self._next_page_btn)
-
-        bar.addSpacing(8)
-
-        # --- Layout segment navigation ---
-        self._seg_prev_btn = GlowIconButton(
-            "chevrons-left.svg",
-            "Previous layout segment",
-        )
-        self._seg_prev_btn.setEnabled(False)
-        self._seg_prev_btn.clicked.connect(self._on_nav_prev_segment)
-        bar.addWidget(self._seg_prev_btn)
-
-        self._seg_label = _make_status_chip("—")
-        self._seg_label.setToolTip("Current layout segment")
-        bar.addWidget(self._seg_label)
-
-        self._seg_next_btn = GlowIconButton(
-            "chevrons-right.svg",
-            "Next layout segment",
-        )
-        self._seg_next_btn.setEnabled(False)
-        self._seg_next_btn.clicked.connect(self._on_nav_next_segment)
-        bar.addWidget(self._seg_next_btn)
-
-        bar.addSpacing(8)
-
-        self._zoom_label = _make_status_chip("100%")
-        self._zoom_label.setToolTip("Zoom level — scroll over the page to zoom")
-        bar.addWidget(self._zoom_label)
-
-        bar.addStretch(1)
-
-        # --- Page omission group ---
-        bar.addWidget(_make_separator())
-        bar.addSpacing(6)
-
-        self._omit_page_btn = GlowIconButton(
-            "page-omit.svg",
-            "Omit this page from extraction.",
-            glow_color=warn_color,
-            checkable=True,
-        )
-        self._omit_page_btn.setProperty("warn", True)
-        self._omit_page_btn.clicked.connect(self._toggle_current_page_omitted)
-        bar.addWidget(self._omit_page_btn)
-
-        omit_all_btn = GlowIconButton(
-            "pages-omit.svg",
-            "Omit every page so none are extracted.",
-            glow_color=warn_color,
-        )
-        omit_all_btn.setProperty("warn", True)
-        omit_all_btn.clicked.connect(self._omit_all_pages)
-        bar.addWidget(omit_all_btn)
-
-        bar.addSpacing(6)
-        bar.addWidget(_make_separator())
-        bar.addSpacing(6)
-
-        # --- Destructive ---
-        clear_btn = GlowIconButton(
-            "trash.svg",
-            "Clear all lines, groups, and omissions for this PDF.",
-            glow_color=danger_color,
-        )
-        clear_btn.setProperty("danger", True)
-        clear_btn.clicked.connect(self._clear_grid)
-        bar.addWidget(clear_btn)
-
-    def _build_empty_state(self) -> QWidget:
-        w = QWidget()
-        inner = QVBoxLayout(w)
-        inner.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        inner.setSpacing(0)
-
-        icon_label = QLabel()
-        pix = QPixmap(theme.icon_path("document.svg"))
-        if not pix.isNull():
-            icon_label.setPixmap(
-                pix.scaled(
-                    72,
-                    72,
-                    Qt.AspectRatioMode.KeepAspectRatio,
-                    Qt.TransformationMode.SmoothTransformation,
-                )
-            )
-        icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        inner.addWidget(icon_label)
-        inner.addSpacing(22)
-
-        title = QLabel("Open a PDF to begin")
-        title.setProperty("heading", True)
-        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        inner.addWidget(title)
-        inner.addSpacing(8)
-
-        subtitle = QLabel("Define reusable row and column boundaries, then group fields for export.")
-        subtitle.setProperty("body", True)
-        subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        inner.addWidget(subtitle)
-        inner.addSpacing(28)
-
-        open_btn = QPushButton(QIcon(theme.icon_path("folder-open.svg")), "  Open PDF")
-        open_btn.setProperty("primary", True)
-        open_btn.setFixedWidth(170)
-        open_btn.clicked.connect(self.open_requested)
-        inner.addWidget(open_btn, alignment=Qt.AlignmentFlag.AlignCenter)
-
-        return w
 
     @property
     def ctrl_bar(self) -> QWidget:
@@ -577,7 +158,7 @@ class GridEditor(QWidget):
         layout.setSpacing(0)
 
         self._stack = QStackedWidget()
-        self._stack.addWidget(self._build_empty_state())
+        self._stack.addWidget(build_empty_state(self.open_requested.emit))
         self._stack.addWidget(self._viewer)
         self._stack.setCurrentIndex(0)
         layout.addWidget(self._stack, stretch=1)
@@ -833,15 +414,12 @@ class GridEditor(QWidget):
     def _on_press(self, event: QMouseEvent) -> None:
         pos = event.position().toPoint()
         dx, dy = pos.x(), pos.y()
-        mouse_button = event.button()
-        if mouse_button == Qt.MouseButton.LeftButton:
-            button_name = "left"
-        elif mouse_button == Qt.MouseButton.MiddleButton:
-            button_name = "middle"
-        elif mouse_button == Qt.MouseButton.RightButton:
-            button_name = "right"
-        else:
-            button_name = "other"
+        button_name = mouse_button_name(
+            event.button(),
+            left_button=Qt.MouseButton.LeftButton,
+            middle_button=Qt.MouseButton.MiddleButton,
+            right_button=Qt.MouseButton.RightButton,
+        )
 
         hit_h, hit_v = self._line_hit(dx, dy)
         press_decision = decide_press_action(
@@ -878,18 +456,18 @@ class GridEditor(QWidget):
         ox, oy = self._d2o(dx, dy)
         if press_decision.action == "begin_place_h":
             self._placing = True
-            self._preview = max(0, oy)
+            self._preview = placing_preview_value("add_h", ox, oy)
             self._overlay.update()
         elif press_decision.action == "begin_place_v":
             self._placing = True
-            self._preview = max(0, ox)
+            self._preview = placing_preview_value("add_v", ox, oy)
             self._overlay.update()
         elif press_decision.action == "group_click":
             self._on_group_click(ox, oy)
         elif press_decision.action == "begin_omit":
-            start = self._clamped_orig_point(ox, oy)
-            self._omit_start = start
-            self._omit_preview = (*start, *start)
+            self._omit_start, self._omit_preview = begin_omit_preview(
+                self._clamped_orig_point(ox, oy)
+            )
             self._set_hint("Dragging ignored area. Release to save it for this page.")
             self._overlay.update()
 
@@ -935,17 +513,12 @@ class GridEditor(QWidget):
             return
 
         if decision.action == "placing_preview":
-            self._preview = max(0, oy if self._mode == "add_h" else ox)
+            self._preview = placing_preview_value(self._mode, ox, oy)
             self._overlay.update()
             return
 
         hit_h, hit_v = self._line_hit(dx, dy)
-        if hit_h is not None:
-            self._hovered_line = ("h", hit_h)
-        elif hit_v is not None:
-            self._hovered_line = ("v", hit_v)
-        else:
-            self._hovered_line = None
+        self._hovered_line = hovered_line_from_hit(hit_h, hit_v)
         self._update_cursor(dx, dy)
 
         if self._mode == "omit":
@@ -969,15 +542,12 @@ class GridEditor(QWidget):
         self._overlay.update()
 
     def _on_release(self, event: QMouseEvent) -> None:
-        mouse_button = event.button()
-        if mouse_button == Qt.MouseButton.LeftButton:
-            button_name = "left"
-        elif mouse_button == Qt.MouseButton.MiddleButton:
-            button_name = "middle"
-        elif mouse_button == Qt.MouseButton.RightButton:
-            button_name = "right"
-        else:
-            button_name = "other"
+        button_name = mouse_button_name(
+            event.button(),
+            left_button=Qt.MouseButton.LeftButton,
+            middle_button=Qt.MouseButton.MiddleButton,
+            right_button=Qt.MouseButton.RightButton,
+        )
 
         release_decision = decide_release_action(
             mouse_button=button_name,
@@ -1065,18 +635,20 @@ class GridEditor(QWidget):
 
     def _on_wheel(self, event: QWheelEvent) -> None:
         """Zoom on mouse wheel. Cancels any in-progress placement first."""
-        if self._placing or self._omit_start is not None:
+        if should_reset_zoom_interaction(
+            is_placing=self._placing,
+            has_omit_start=self._omit_start is not None,
+        ):
             self._placing = False
             self._preview = None
             self._omit_start = None
             self._omit_preview = None
 
-        delta = event.angleDelta().y()
-        if delta == 0:
+        factor = wheel_zoom_factor(event.angleDelta().y())
+        if factor is None:
             event.accept()
             return
 
-        factor = 1.15 if delta > 0 else 1.0 / 1.15
         new_zoom = self._viewer.zoom_level * factor
         pos = event.position().toPoint()
         self._viewer.zoom_at(pos.x(), pos.y(), new_zoom)
@@ -1164,23 +736,11 @@ class GridEditor(QWidget):
     # ------------------------------------------------------------------
 
     def _edit_fields(self) -> None:
-        if self._groups:
-            confirm = QMessageBox(self)
-            confirm.setWindowTitle("Change fields")
-            confirm.setIcon(QMessageBox.Icon.Warning)
-            confirm.setText("Changing fields will clear existing groups.")
-            confirm.setInformativeText("Continue?")
-            confirm.setStandardButtons(
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel
-            )
-            confirm.setDefaultButton(QMessageBox.StandardButton.Cancel)
-            if confirm.exec() != QMessageBox.StandardButton.Yes:
-                return
-
-        dialog = _FieldRecipeDialog(list(self._fields), self)
-        if dialog.exec() != QDialog.DialogCode.Accepted:
+        if not confirm_field_recipe_change(self, has_groups=bool(self._groups)):
             return
-        fields = dialog.fields()
+        fields = prompt_field_recipe(self, list(self._fields))
+        if fields is None:
+            return
         if not fields:
             self._set_hint("Keep at least one field in the recipe.")
             return
