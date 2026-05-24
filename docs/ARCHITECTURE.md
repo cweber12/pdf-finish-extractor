@@ -27,7 +27,7 @@ pdf-finish-extractor/
     │   ├── grid_editor_interaction.py  Mouse press/move/release branch-precedence decision helpers.
     │   ├── grid_editor_segments.py  Segment indexing, snapshot updates, and segment-nav state helpers.
     │   ├── preview_panel.py  Shows extracted groups; triggers Excel export.
-    │   └── profile_manager.py  Saves/loads Grid profiles as JSON files.
+    │   └── profile_manager.py  UI-facing adapter over profile persistence.
     ├── extraction/           Pure extraction logic; no UI, export, or network I/O.
     │   ├── grid.py           Grid data model (lines, field recipe, groups, omit rules).
     │   ├── planner.py        Resolves page-local field rectangles from Grid + segments + omit rules.
@@ -39,12 +39,14 @@ pdf-finish-extractor/
     │   └── swatch_workbook.py  Writes extracted groups to Excel.
     ├── common/               Shared cross-layer contracts.
     │   └── errors.py         Typed error classes + UI-safe message mapping.
+    ├── profiles/             Profile persistence layer; no UI concerns.
+    │   └── repository.py     Filesystem JSON repository for Grid profiles.
     └── upload/               Dormant network I/O kept for later reintegration.
         ├── worker_client.py  POSTs swatch to Cloudflare Worker.
         └── neon_client.py    Read-only Neon queries.
 ```
 
-**Dependency rule:** `ui` → `extraction`, `exporting`, `upload`, `common`. `exporting` accepts extracted groups with typed field values but has no dependency on UI, extraction internals, or network code. `extraction` and `upload` have no dependency on each other or on `ui`. `common` may be imported by any layer for shared contracts only (no PyQt, network, or PDF rendering logic). Upload modules remain in the codebase for later reintegration, but upload actions are not exposed in the current UI.
+**Dependency rule:** `ui` → `extraction`, `exporting`, `profiles`, `upload`, `common`. `profiles` may depend on extraction contracts (`Grid`) but must not import PyQt UI modules. `exporting` accepts extracted groups with typed field values but has no dependency on UI, extraction internals, or network code. `extraction` and `upload` have no dependency on each other or on `ui`. `common` may be imported by any layer for shared contracts only (no PyQt, network, or PDF rendering logic). Upload modules remain in the codebase for later reintegration, but upload actions are not exposed in the current UI.
 
 ---
 
@@ -60,7 +62,10 @@ PDFViewer (PyMuPDF → QPixmap)
 GridEditor — navigate pages, draw lines, define fields, group cells, omit pages/regions
       │  saves/loads
       ▼
-ProfileManager (profiles/*.json)
+ProfileManager (UI adapter)
+      │
+      ▼
+ProfileRepository (profiles/*.json)
       │  Grid (field recipe, groups, omitted_pages, omit_regions)
       ▼
 MainWindow spawns _ExtractionWorker on QThread

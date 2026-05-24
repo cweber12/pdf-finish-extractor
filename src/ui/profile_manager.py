@@ -1,55 +1,29 @@
 from __future__ import annotations
 
-import json
-import re
 from pathlib import Path
 
 from src.extraction.grid import Grid
-
-_PROFILES_DIR = Path(__file__).resolve().parents[2] / "profiles"
-
-
-def _safe_profile_name(name: str) -> str:
-    """Return a filesystem-safe profile name while preserving readability."""
-    cleaned = re.sub(r"[^A-Za-z0-9_. -]+", "-", name.strip())
-    cleaned = re.sub(r"\s+", " ", cleaned).strip(" .-")
-    if not cleaned:
-        raise ValueError("Profile name cannot be empty.")
-    return cleaned
+from src.profiles.repository import ProfileRepository
 
 
 class ProfileManager:
-    """Saves and loads named grid profiles from the ``profiles/`` directory."""
+    """UI-facing adapter over profile persistence repository."""
 
-    def __init__(self) -> None:
-        _PROFILES_DIR.mkdir(exist_ok=True)
+    def __init__(self, profiles_dir: Path | None = None) -> None:
+        self._repository = ProfileRepository(profiles_dir)
 
     def list_profiles(self) -> list[str]:
-        return sorted(p.stem for p in _PROFILES_DIR.glob("*.json"))
+        return self._repository.list_profiles()
 
     def save(self, name: str, grid: Grid | None) -> str:
         """Save *grid* as *name* and return the normalized saved name."""
         if grid is None:
             raise ValueError("Create at least one grid line before saving a profile.")
-
-        saved_name = _safe_profile_name(name)
-        path = _PROFILES_DIR / f"{saved_name}.json"
-        path.write_text(json.dumps(grid.to_dict(), indent=2), encoding="utf-8")
-        return saved_name
+        return self._repository.save(name, grid)
 
     def load(self, name: str) -> Grid | None:
-        safe_name = _safe_profile_name(name)
-        path = _PROFILES_DIR / f"{safe_name}.json"
-        if not path.exists():
-            return None
-        data = json.loads(path.read_text(encoding="utf-8"))
-        return Grid.from_dict(data)
+        return self._repository.load(name)
 
     def delete(self, name: str) -> bool:
         """Delete the saved profile named *name*. Returns True if a file was removed."""
-        safe_name = _safe_profile_name(name)
-        path = _PROFILES_DIR / f"{safe_name}.json"
-        if not path.exists():
-            return False
-        path.unlink()
-        return True
+        return self._repository.delete(name)
