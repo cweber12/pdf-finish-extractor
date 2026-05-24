@@ -16,7 +16,7 @@ pdf-finish-extractor/
     ├── ui/                   PyQt6 UI layer.
     │   ├── main_window.py    Compatibility adapter re-exporting shell MainWindow.
     │   ├── extraction_feedback.py  Compatibility adapter re-exporting feedback helpers.
-    │   ├── extraction_session.py  QThread extraction lifecycle seam used by MainWindow.
+    │   ├── extraction_session.py  Compatibility adapter re-exporting runtime extraction session.
     │   ├── main_window_intents.py  Compatibility adapter re-exporting shell intent helpers.
     │   ├── profile_menu.py   Compatibility adapter re-exporting profile menu helpers.
     │   ├── grid_editor_lifecycle.py  Grid/profile lifecycle state transforms for GridEditor.
@@ -47,6 +47,8 @@ pdf-finish-extractor/
     │   ├── feedback/
     │   │   ├── extraction_feedback.py  Pure helpers for extraction progress/status/toast decisions.
     │   │   └── toast.py  Toast presenter widget helper.
+    │   ├── runtime/
+    │   │   └── extraction_session.py  QThread extraction lifecycle seam used by MainWindow.
     │   ├── profiles/
     │   │   ├── profile_menu.py  Grid layout dropdown row widget + menu population helpers.
     │   │   └── profile_manager.py  UI-facing adapter over profile persistence.

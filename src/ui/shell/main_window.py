@@ -28,7 +28,7 @@ from src.ui.feedback.extraction_feedback import (
     extraction_progress_value,
     toolbar_state_for_running,
 )
-from src.ui.extraction_session import ExtractionSession
+from src.ui.runtime.extraction_session import ExtractionSession
 from src.ui.grid_editor import GlowIconButton, GridEditor
 from src.ui.shell.main_window_intents import (
     busy_guard_message,
