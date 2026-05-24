@@ -73,6 +73,13 @@ from src.ui.grid_editor_modes import mode_hint, mode_uses_crosshair, resolved_mo
 from src.ui.grid_editor_omit import decide_omit_move, decide_omit_release
 from src.ui.grid_editor_overlay import _handle_rects_display, _OverlayWidget, _page_rect_display
 from src.ui.grid_editor_right_click import decide_right_click
+from src.ui.grid_editor_segments import (
+    adjacent_segment_start_page,
+    layout_state_for_page,
+    record_segment_change,
+    segment_index_for_page,
+    segment_nav_state,
+)
 from src.ui.pdf_viewer import PDFViewer
 
 _LINE_HIT_DIST = 5
@@ -1222,66 +1229,46 @@ class GridEditor(QWidget):
     # ------------------------------------------------------------------
 
     def _segment_index_for_page(self, page_index: int) -> int:
-        """Return the index of the segment whose layout applies to ``page_index``."""
-        best = 0
-        for i, seg in enumerate(self._segments):
-            if seg.start_page <= page_index:
-                best = i
-            else:
-                break
-        return best
+        return segment_index_for_page(self._segments, page_index)
 
     def _record_segment_change(self) -> None:
         """Snapshot the current grid state into _segments for the active page."""
-        if not self._segments:
-            return
-        page_index = self.current_page_index()
-        seg_idx = self._segment_index_for_page(page_index)
-        new_seg = GridSegment(
-            start_page=page_index,
-            horizontal_lines=list(self._h_lines),
-            vertical_lines=list(self._v_lines),
-            groups=list(self._groups),
+        self._segments = record_segment_change(
+            segments=self._segments,
+            page_index=self.current_page_index(),
+            horizontal_lines=self._h_lines,
+            vertical_lines=self._v_lines,
+            groups=self._groups,
         )
-        if self._segments[seg_idx].start_page == page_index:
-            self._segments[seg_idx] = new_seg
-        else:
-            self._segments.insert(seg_idx + 1, new_seg)
         self._update_segment_nav()
 
     def _load_segment_for_page(self, page_index: int) -> None:
         """Load the layout applicable to ``page_index`` into the editor state."""
-        if not self._segments:
+        state = layout_state_for_page(self._segments, page_index)
+        if state is None:
             return
-        seg = self._segments[self._segment_index_for_page(page_index)]
-        self._h_lines = sorted(seg.horizontal_lines)
-        self._v_lines = sorted(seg.vertical_lines)
-        self._groups = list(seg.groups)
+        self._h_lines = state.horizontal_lines
+        self._v_lines = state.vertical_lines
+        self._groups = state.groups
         self._pending_group_cells = []
         self._overlay.update()
 
     def _update_segment_nav(self) -> None:
         """Refresh the segment navigator label and button enabled states."""
-        total = len(self._segments)
-        if total == 0:
-            self._seg_label.setText("—")
-            self._seg_prev_btn.setEnabled(False)
-            self._seg_next_btn.setEnabled(False)
-            return
-        idx = self._segment_index_for_page(self.current_page_index())
-        self._seg_label.setText(f"{idx + 1}/{total}")
-        self._seg_prev_btn.setEnabled(idx > 0)
-        self._seg_next_btn.setEnabled(idx < total - 1)
+        nav = segment_nav_state(self._segments, self.current_page_index())
+        self._seg_label.setText(nav.label)
+        self._seg_prev_btn.setEnabled(nav.prev_enabled)
+        self._seg_next_btn.setEnabled(nav.next_enabled)
 
     def _on_nav_prev_segment(self) -> None:
-        idx = self._segment_index_for_page(self.current_page_index())
-        if idx > 0:
-            self._go_to_page(self._segments[idx - 1].start_page)
+        target = adjacent_segment_start_page(self._segments, self.current_page_index(), "prev")
+        if target is not None:
+            self._go_to_page(target)
 
     def _on_nav_next_segment(self) -> None:
-        idx = self._segment_index_for_page(self.current_page_index())
-        if idx < len(self._segments) - 1:
-            self._go_to_page(self._segments[idx + 1].start_page)
+        target = adjacent_segment_start_page(self._segments, self.current_page_index(), "next")
+        if target is not None:
+            self._go_to_page(target)
 
 
 
