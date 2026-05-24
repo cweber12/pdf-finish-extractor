@@ -72,6 +72,12 @@ from src.ui.grid_editor_line_edit import apply_line_placement, bounded_line_valu
 from src.ui.grid_editor_modes import mode_hint, mode_uses_crosshair, resolved_mode
 from src.ui.grid_editor_omit import decide_omit_move, decide_omit_release
 from src.ui.grid_editor_overlay import _handle_rects_display, _OverlayWidget, _page_rect_display
+from src.ui.grid_editor_pages import (
+    omit_all_pages,
+    page_controls_state,
+    toggle_omitted_page,
+    viewing_page_hint,
+)
 from src.ui.grid_editor_right_click import decide_right_click
 from src.ui.grid_editor_segments import (
     adjacent_segment_start_page,
@@ -641,14 +647,16 @@ class GridEditor(QWidget):
         return [region for region in self._omit_regions if region.page_index == page_index]
 
     def _update_page_controls(self) -> None:
-        page_count = self._viewer.page_count
-        page_index = self.current_page_index()
-        has_pages = page_count > 0
-        self._prev_page_btn.setEnabled(has_pages and page_index > 0)
-        self._next_page_btn.setEnabled(has_pages and page_index < page_count - 1)
-        self._omit_page_btn.setEnabled(has_pages)
-        self._page_label.setText(f"{page_index + 1}/{page_count}" if has_pages else "—/—")
-        self._omit_page_btn.setChecked(page_index in self._omitted_pages)
+        state = page_controls_state(
+            page_count=self._viewer.page_count,
+            page_index=self.current_page_index(),
+            omitted_pages=self._omitted_pages,
+        )
+        self._prev_page_btn.setEnabled(state.prev_enabled)
+        self._next_page_btn.setEnabled(state.next_enabled)
+        self._omit_page_btn.setEnabled(state.omit_enabled)
+        self._page_label.setText(state.page_label)
+        self._omit_page_btn.setChecked(state.omit_checked)
 
     def _go_to_page(self, index: int) -> None:
         if index < 0 or index >= self._viewer.page_count:
@@ -663,28 +671,25 @@ class GridEditor(QWidget):
         self._update_page_controls()
         self._load_segment_for_page(index)
         self._update_segment_nav()
-        self._set_hint(f"Viewing page {index + 1}. Edits apply to this page and forward.")
+        self._set_hint(viewing_page_hint(index))
         self._reposition_overlay()
 
     def _toggle_current_page_omitted(self) -> None:
-        page_index = self.current_page_index()
-        if page_index in self._omitted_pages:
-            self._omitted_pages.remove(page_index)
-            self._set_hint("Current page will be included during extraction.")
-        else:
-            self._omitted_pages.add(page_index)
-            self._set_hint("Current page will be skipped during extraction.")
+        decision = toggle_omitted_page(self._omitted_pages, self.current_page_index())
+        self._omitted_pages = decision.omitted_pages
+        self._set_hint(decision.hint)
         self._update_page_controls()
         self._overlay.update()
 
     def _omit_all_pages(self) -> None:
-        page_count = self._viewer.page_count
-        if page_count == 0:
+        decision = omit_all_pages(self._viewer.page_count)
+        if decision is None:
             return
-        self._omitted_pages = set(range(page_count))
+        omitted_pages, hint = decision
+        self._omitted_pages = omitted_pages
         self._update_page_controls()
         self._overlay.update()
-        self._set_hint(f"All {page_count} pages marked as omitted.")
+        self._set_hint(hint)
 
     # ------------------------------------------------------------------
     # Coordinate helpers
