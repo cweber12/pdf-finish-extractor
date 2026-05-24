@@ -21,7 +21,6 @@ from PyQt6.QtCore import (
     QEasingCurve,
     QEvent,
     QPoint,
-    QPointF,
     QPropertyAnimation,
     QRect,
     QSize,
@@ -69,6 +68,7 @@ from src.ui.grid_editor_geometry import (
     grid_orig_boundaries,
     omit_region_index_at_orig_point,
 )
+from src.ui.grid_editor_hit_test import resolve_line_hit
 from src.ui.grid_editor_interaction import (
     decide_move_action,
     decide_press_action,
@@ -84,7 +84,7 @@ from src.ui.grid_editor_lifecycle import (
 from src.ui.grid_editor_line_edit import apply_line_placement, bounded_line_value, can_place_line
 from src.ui.grid_editor_modes import mode_hint, mode_uses_crosshair, resolved_mode
 from src.ui.grid_editor_omit import decide_omit_move, decide_omit_release
-from src.ui.grid_editor_overlay import _handle_rects_display, _OverlayWidget, _page_rect_display
+from src.ui.grid_editor_overlay import _OverlayWidget
 from src.ui.grid_editor_pages import (
     omit_all_pages,
     page_controls_state,
@@ -753,32 +753,13 @@ class GridEditor(QWidget):
     def _line_hit(self, dx: int, dy: int) -> tuple[int | None, int | None]:
         """Return (h_index, None) or (None, v_index) if near a line/handle."""
         h_d, v_d = self._grid_display_boundaries()
-        page_rect = _page_rect_display(h_d, v_d)
-        point = QPointF(dx, dy)
-
-        # Handles are the most intentional drag target, so they take priority.
-        # If compact handles visually overlap, choose the nearest line instead
-        # of moving handles into alternate lanes.
-        handle_candidates: list[tuple[float, str, int]] = []
-        for (kind, idx), rect in _handle_rects_display(page_rect, h_d, v_d).items():
-            if rect.adjusted(-5, -5, 5, 5).contains(point):
-                distance = abs(dy - rect.center().y()) if kind == "h" else abs(dx - rect.center().x())
-                handle_candidates.append((distance, kind, idx))
-        if handle_candidates:
-            _distance, kind, idx = min(handle_candidates, key=lambda item: item[0])
-            return (idx, None) if kind == "h" else (None, idx)
-
-        # Lines remain draggable, but only across the visible page area.
-        if not page_rect.adjusted(-2, -2, 2, 2).contains(QPoint(dx, dy)):
-            return None, None
-
-        for i, y_d in enumerate(h_d[1:-1]):
-            if abs(dy - y_d) <= _LINE_HIT_DIST:
-                return i, None
-        for i, x_d in enumerate(v_d[1:-1]):
-            if abs(dx - x_d) <= _LINE_HIT_DIST:
-                return None, i
-        return None, None
+        return resolve_line_hit(
+            dx=dx,
+            dy=dy,
+            h_d=h_d,
+            v_d=v_d,
+            line_hit_dist=_LINE_HIT_DIST,
+        )
 
     def _bounded_line_value(self, dtype: str, idx: int, value: int) -> int:
         """Clamp a dragged line so it cannot cross adjacent boundaries."""
