@@ -63,7 +63,11 @@ from src.extraction.grid import (
 )
 from src.ui import theme
 from src.ui.grid_editor_grouping import apply_group_click
-from src.ui.grid_editor_interaction import decide_move_action, decide_release_action
+from src.ui.grid_editor_interaction import (
+    decide_move_action,
+    decide_press_action,
+    decide_release_action,
+)
 from src.ui.grid_editor_line_edit import apply_line_placement, bounded_line_value, can_place_line
 from src.ui.grid_editor_modes import mode_hint, mode_uses_crosshair, resolved_mode
 from src.ui.grid_editor_omit import decide_omit_move, decide_omit_release
@@ -835,40 +839,60 @@ class GridEditor(QWidget):
     def _on_press(self, event: QMouseEvent) -> None:
         pos = event.position().toPoint()
         dx, dy = pos.x(), pos.y()
+        mouse_button = event.button()
+        if mouse_button == Qt.MouseButton.LeftButton:
+            button_name = "left"
+        elif mouse_button == Qt.MouseButton.MiddleButton:
+            button_name = "middle"
+        elif mouse_button == Qt.MouseButton.RightButton:
+            button_name = "right"
+        else:
+            button_name = "other"
 
-        if event.button() == Qt.MouseButton.RightButton:
+        hit_h, hit_v = self._line_hit(dx, dy)
+        press_decision = decide_press_action(
+            mouse_button=button_name,
+            mode=self._mode,
+            hit_h_index=hit_h,
+            hit_v_index=hit_v,
+        )
+
+        if press_decision.action == "right_click":
             self._on_right_click(dx, dy)
             return
 
-        if event.button() == Qt.MouseButton.MiddleButton:
+        if press_decision.action == "begin_pan":
             self._pan_last = pos
             self._overlay.setCursor(Qt.CursorShape.ClosedHandCursor)
             return
 
-        hit_h, hit_v = self._line_hit(dx, dy)
-        if hit_h is not None:
+        if press_decision.action == "begin_drag_h":
+            if hit_h is None:
+                return
             self._dragging = ("h", hit_h)
             self._set_hint("Dragging row boundary. Release to set position.")
             self._overlay.update()
             return
-        if hit_v is not None:
+        if press_decision.action == "begin_drag_v":
+            if hit_v is None:
+                return
             self._dragging = ("v", hit_v)
             self._set_hint("Dragging column boundary. Release to set position.")
             self._overlay.update()
             return
 
         ox, oy = self._d2o(dx, dy)
-        if self._mode == "add_h":
+        if press_decision.action == "begin_place_h":
             self._placing = True
             self._preview = max(0, oy)
             self._overlay.update()
-        elif self._mode == "add_v":
+        elif press_decision.action == "begin_place_v":
             self._placing = True
             self._preview = max(0, ox)
             self._overlay.update()
-        elif self._mode == "grouping":
+        elif press_decision.action == "group_click":
             self._on_group_click(ox, oy)
-        elif self._mode == "omit":
+        elif press_decision.action == "begin_omit":
             start = self._clamped_orig_point(ox, oy)
             self._omit_start = start
             self._omit_preview = (*start, *start)

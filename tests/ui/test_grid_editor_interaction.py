@@ -1,6 +1,70 @@
 from __future__ import annotations
 
-from src.ui.grid_editor_interaction import decide_move_action, decide_release_action
+from src.ui.grid_editor_interaction import (
+    decide_move_action,
+    decide_press_action,
+    decide_release_action,
+)
+
+
+def test_decide_press_action_precedence() -> None:
+    assert decide_press_action(
+        mouse_button="right",
+        mode="grouping",
+        hit_h_index=1,
+        hit_v_index=2,
+    ).action == "right_click"
+    assert decide_press_action(
+        mouse_button="middle",
+        mode="grouping",
+        hit_h_index=1,
+        hit_v_index=2,
+    ).action == "begin_pan"
+    assert decide_press_action(
+        mouse_button="left",
+        mode="grouping",
+        hit_h_index=1,
+        hit_v_index=2,
+    ).action == "begin_drag_h"
+    assert decide_press_action(
+        mouse_button="left",
+        mode="grouping",
+        hit_h_index=None,
+        hit_v_index=2,
+    ).action == "begin_drag_v"
+
+
+def test_decide_press_action_mode_fallbacks_without_hits() -> None:
+    assert decide_press_action(
+        mouse_button="left",
+        mode="add_h",
+        hit_h_index=None,
+        hit_v_index=None,
+    ).action == "begin_place_h"
+    assert decide_press_action(
+        mouse_button="left",
+        mode="add_v",
+        hit_h_index=None,
+        hit_v_index=None,
+    ).action == "begin_place_v"
+    assert decide_press_action(
+        mouse_button="left",
+        mode="grouping",
+        hit_h_index=None,
+        hit_v_index=None,
+    ).action == "group_click"
+    assert decide_press_action(
+        mouse_button="left",
+        mode="omit",
+        hit_h_index=None,
+        hit_v_index=None,
+    ).action == "begin_omit"
+    assert decide_press_action(
+        mouse_button="left",
+        mode="idle",
+        hit_h_index=None,
+        hit_v_index=None,
+    ).action == "none"
 
 
 def test_decide_move_action_precedence() -> None:
