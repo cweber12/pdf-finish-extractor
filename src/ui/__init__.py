@@ -19,7 +19,7 @@ def __getattr__(name: str) -> object:
 
         return PreviewPanel
     if name == "ProfileManager":
-        from src.ui.profile_manager import ProfileManager
+        from src.ui.profiles.profile_manager import ProfileManager
 
         return ProfileManager
     if name == "Toast":

@@ -18,7 +18,7 @@ pdf-finish-extractor/
     │   ├── extraction_feedback.py  Pure helpers for extraction progress/status/toast decisions.
     │   ├── extraction_session.py  QThread extraction lifecycle seam used by MainWindow.
     │   ├── main_window_intents.py  Compatibility adapter re-exporting shell intent helpers.
-    │   ├── profile_menu.py   Grid layout dropdown row widget + menu population helpers.
+    │   ├── profile_menu.py   Compatibility adapter re-exporting profile menu helpers.
     │   ├── grid_editor_lifecycle.py  Grid/profile lifecycle state transforms for GridEditor.
     │   ├── grid_editor_pages.py  Page navigation/omission control state + hint decision helpers.
     │   ├── grid_editor_geometry.py  Cell/region hit-testing and coordinate boundary helpers.
@@ -38,11 +38,14 @@ pdf-finish-extractor/
     │   ├── grid_editor_interaction.py  Mouse press/move/release branch-precedence decision helpers.
     │   ├── grid_editor_segments.py  Segment indexing, snapshot updates, and segment-nav state helpers.
     │   ├── preview_panel.py  Shows extracted groups; triggers Excel export.
-    │   ├── profile_manager.py  UI-facing adapter over profile persistence.
+    │   ├── profile_manager.py  Compatibility adapter re-exporting profile manager.
     │   ├── theme.py  Compatibility adapter re-exporting style tokens and stylesheet.
     │   ├── shell/
     │   │   ├── main_window.py  Top-level window, toolbar, wires UI components together.
     │   │   └── main_window_intents.py  Pure guard/preflight/message decisions for MainWindow actions.
+    │   ├── profiles/
+    │   │   ├── profile_menu.py  Grid layout dropdown row widget + menu population helpers.
+    │   │   └── profile_manager.py  UI-facing adapter over profile persistence.
     │   └── style/
     │       ├── theme.py  Design tokens, icon path helper, and global stylesheet.
     │       └── icons/  Bundled SVG assets referenced by the style theme.
