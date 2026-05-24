@@ -29,7 +29,8 @@ from src.ui.feedback.extraction_feedback import (
     toolbar_state_for_running,
 )
 from src.ui.runtime.extraction_session import ExtractionSession
-from src.ui.grid_editor import GlowIconButton, GridEditor
+from src.ui.editor.grid_editor import GridEditor
+from src.ui.editor.grid_editor_widgets import GlowIconButton
 from src.ui.shell.main_window_intents import (
     busy_guard_message,
     extract_preflight_error,

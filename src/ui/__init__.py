@@ -7,11 +7,11 @@ def __getattr__(name: str) -> object:
 
         return MainWindow
     if name == "PDFViewer":
-        from src.ui.pdf_viewer import PDFViewer
+        from src.ui.editor.pdf_viewer import PDFViewer
 
         return PDFViewer
     if name == "GridEditor":
-        from src.ui.grid_editor import GridEditor
+        from src.ui.editor.grid_editor import GridEditor
 
         return GridEditor
     if name == "PreviewPanel":

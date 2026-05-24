@@ -19,24 +19,24 @@ pdf-finish-extractor/
     │   ├── extraction_session.py  Compatibility adapter re-exporting runtime extraction session.
     │   ├── main_window_intents.py  Compatibility adapter re-exporting shell intent helpers.
     │   ├── profile_menu.py   Compatibility adapter re-exporting profile menu helpers.
-    │   ├── grid_editor_lifecycle.py  Grid/profile lifecycle state transforms for GridEditor.
-    │   ├── grid_editor_pages.py  Page navigation/omission control state + hint decision helpers.
-    │   ├── grid_editor_geometry.py  Cell/region hit-testing and coordinate boundary helpers.
-    │   ├── grid_editor_hit_test.py  Line/handle hit precedence and visible-page drag targeting helpers.
-    │   ├── grid_editor_interaction_flow.py  Shared interaction-flow helpers for mouse/zoom event wiring.
-    │   ├── grid_editor_fields.py  Field recipe dialog and confirmation/prompt helpers.
-    │   ├── grid_editor_controls.py  GridEditor toolbar + empty-state composition helpers.
-    │   ├── grid_editor_widgets.py  Reusable GridEditor UI primitives (glow button, separators, status chips).
-    │   ├── pdf_viewer.py     Renders a PDF page to QPixmap via PyMuPDF.
-    │   ├── grid_editor.py    GridEditor state, controls, and interaction handlers.
-    │   ├── grid_editor_overlay.py  Overlay rendering + pointer event forwarding seam for GridEditor.
-    │   ├── grid_editor_grouping.py  Grouping recipe helpers + click-decision logic.
-    │   ├── grid_editor_modes.py  Mode-resolution and cursor/hint behavior helpers.
-    │   ├── grid_editor_right_click.py  Right-click decision helper for omit/group/line removal flows.
-    │   ├── grid_editor_line_edit.py  Drag/placement line constraints and placement decision helpers.
-    │   ├── grid_editor_omit.py  Omit-region move/release decisions and rectangle normalization helpers.
-    │   ├── grid_editor_interaction.py  Mouse press/move/release branch-precedence decision helpers.
-    │   ├── grid_editor_segments.py  Segment indexing, snapshot updates, and segment-nav state helpers.
+    │   ├── grid_editor.py    Compatibility adapter re-exporting editor grid editor.
+    │   ├── grid_editor_controls.py  Compatibility adapter re-exporting editor controls helpers.
+    │   ├── grid_editor_fields.py  Compatibility adapter re-exporting editor field-recipe helpers.
+    │   ├── grid_editor_geometry.py  Compatibility adapter re-exporting editor geometry helpers.
+    │   ├── grid_editor_grouping.py  Compatibility adapter re-exporting editor grouping helpers.
+    │   ├── grid_editor_hit_test.py  Compatibility adapter re-exporting editor hit-test helpers.
+    │   ├── grid_editor_interaction_flow.py  Compatibility adapter re-exporting editor interaction-flow helpers.
+    │   ├── grid_editor_interaction.py  Compatibility adapter re-exporting editor interaction decision helpers.
+    │   ├── grid_editor_lifecycle.py  Compatibility adapter re-exporting editor lifecycle helpers.
+    │   ├── grid_editor_line_edit.py  Compatibility adapter re-exporting editor line-edit helpers.
+    │   ├── grid_editor_modes.py  Compatibility adapter re-exporting editor mode helpers.
+    │   ├── grid_editor_omit.py  Compatibility adapter re-exporting editor omit helpers.
+    │   ├── grid_editor_overlay.py  Compatibility adapter re-exporting editor overlay module.
+    │   ├── grid_editor_pages.py  Compatibility adapter re-exporting editor page helpers.
+    │   ├── grid_editor_right_click.py  Compatibility adapter re-exporting editor right-click helper.
+    │   ├── grid_editor_segments.py  Compatibility adapter re-exporting editor segment helpers.
+    │   ├── grid_editor_widgets.py  Compatibility adapter re-exporting editor UI primitives.
+    │   ├── pdf_viewer.py     Compatibility adapter re-exporting editor PDF viewer.
     │   ├── preview_panel.py  Compatibility adapter re-exporting preview panel.
     │   ├── profile_manager.py  Compatibility adapter re-exporting profile manager.
     │   ├── theme.py  Compatibility adapter re-exporting style tokens and stylesheet.
@@ -49,6 +49,25 @@ pdf-finish-extractor/
     │   │   └── toast.py  Toast presenter widget helper.
     │   ├── panels/
     │   │   └── preview_panel.py  Shows extracted groups; triggers Excel export.
+    │   ├── editor/
+    │   │   ├── grid_editor.py  GridEditor state, controls, and interaction handlers.
+    │   │   ├── grid_editor_controls.py  GridEditor toolbar + empty-state composition helpers.
+    │   │   ├── grid_editor_fields.py  Field recipe dialog and confirmation/prompt helpers.
+    │   │   ├── grid_editor_geometry.py  Cell/region hit-testing and coordinate boundary helpers.
+    │   │   ├── grid_editor_grouping.py  Grouping recipe helpers + click-decision logic.
+    │   │   ├── grid_editor_hit_test.py  Line/handle hit precedence and visible-page drag targeting helpers.
+    │   │   ├── grid_editor_interaction_flow.py  Shared interaction-flow helpers for mouse/zoom event wiring.
+    │   │   ├── grid_editor_interaction.py  Mouse press/move/release branch-precedence decision helpers.
+    │   │   ├── grid_editor_lifecycle.py  Grid/profile lifecycle state transforms for GridEditor.
+    │   │   ├── grid_editor_line_edit.py  Drag/placement line constraints and placement decision helpers.
+    │   │   ├── grid_editor_modes.py  Mode-resolution and cursor/hint behavior helpers.
+    │   │   ├── grid_editor_omit.py  Omit-region move/release decisions and rectangle normalization helpers.
+    │   │   ├── grid_editor_overlay.py  Overlay rendering + pointer event forwarding seam for GridEditor.
+    │   │   ├── grid_editor_pages.py  Page navigation/omission control state + hint decision helpers.
+    │   │   ├── grid_editor_right_click.py  Right-click decision helper for omit/group/line removal flows.
+    │   │   ├── grid_editor_segments.py  Segment indexing, snapshot updates, and segment-nav state helpers.
+    │   │   ├── grid_editor_widgets.py  Reusable GridEditor UI primitives (glow button, separators, status chips).
+    │   │   └── pdf_viewer.py  Renders a PDF page to QPixmap via PyMuPDF.
     │   ├── runtime/
     │   │   └── extraction_session.py  QThread extraction lifecycle seam used by MainWindow.
     │   ├── profiles/
