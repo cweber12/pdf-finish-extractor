@@ -17,6 +17,7 @@ pdf-finish-extractor/
     │   ├── main_window.py    Top-level window, toolbar, wires UI components together.
     │   ├── extraction_feedback.py  Pure helpers for extraction progress/status/toast decisions.
     │   ├── extraction_session.py  QThread extraction lifecycle seam used by MainWindow.
+    │   ├── main_window_intents.py  Pure guard/preflight/message decisions for MainWindow actions.
     │   ├── profile_menu.py   Grid layout dropdown row widget + menu population helpers.
     │   ├── pdf_viewer.py     Renders a PDF page to QPixmap via PyMuPDF.
     │   ├── grid_editor.py    GridEditor state, controls, and interaction handlers.

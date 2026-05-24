@@ -30,6 +30,12 @@ from src.ui.extraction_feedback import (
 )
 from src.ui.extraction_session import ExtractionSession
 from src.ui.grid_editor import GlowIconButton, GridEditor
+from src.ui.main_window_intents import (
+    busy_guard_message,
+    extract_preflight_error,
+    named_event_message,
+    save_profile_preflight_error,
+)
 from src.ui.profile_menu import apply_selected_layout_label, populate_profile_menu
 from src.ui.preview_panel import PreviewPanel
 from src.ui.profile_manager import ProfileManager
@@ -207,7 +213,7 @@ class MainWindow(QMainWindow):
 
     def _on_open_pdf(self) -> None:
         if self._is_extracting():
-            Toast.show_in(self.window(), "Cancel extraction before opening another PDF.", success=False)
+            Toast.show_in(self.window(), busy_guard_message("open_pdf"), success=False)
             return
 
         path, _ = QFileDialog.getOpenFileName(
@@ -220,7 +226,7 @@ class MainWindow(QMainWindow):
 
     def _on_profile_selected(self, name: str) -> None:
         if self._is_extracting():
-            Toast.show_in(self.window(), "Cancel extraction before changing profiles.", success=False)
+            Toast.show_in(self.window(), busy_guard_message("change_profile"), success=False)
             return
 
         profile = self._profile_manager.load(name)
@@ -228,21 +234,19 @@ class MainWindow(QMainWindow):
             self._grid_editor.apply_profile(profile)
             self._selected_profile_name = name
             self._set_selected_layout_label(name)
-            self._set_status(f"Profile applied: {name}")
-            Toast.show_in(self.window(), f"Profile applied: {name}", success=True)
+            msg = named_event_message("Profile applied", name)
+            self._set_status(msg)
+            Toast.show_in(self.window(), msg, success=True)
 
     def _on_save_profile(self) -> None:
         if self._is_extracting():
-            Toast.show_in(self.window(), "Cancel extraction before saving a profile.", success=False)
+            Toast.show_in(self.window(), busy_guard_message("save_profile"), success=False)
             return
 
         profile = self._grid_editor.current_profile()
-        if profile is None:
-            Toast.show_in(
-                self.window(),
-                "Add at least one grid line before saving a profile.",
-                success=False,
-            )
+        profile_error = save_profile_preflight_error(profile_exists=(profile is not None))
+        if profile_error:
+            Toast.show_in(self.window(), profile_error, success=False)
             return
 
         suggested = self._selected_profile_name or ""
@@ -264,8 +268,9 @@ class MainWindow(QMainWindow):
         self._selected_profile_name = saved_name
         self._refresh_profiles()
         self._set_selected_layout_label(saved_name)
-        self._set_status(f"Profile saved: {saved_name}")
-        Toast.show_in(self.window(), f"Profile saved: {saved_name}", success=True)
+        msg = named_event_message("Profile saved", saved_name)
+        self._set_status(msg)
+        Toast.show_in(self.window(), msg, success=True)
 
     def _set_selected_layout_label(self, name: str | None) -> None:
         apply_selected_layout_label(self._profile_button, name)
@@ -276,11 +281,12 @@ class MainWindow(QMainWindow):
 
         profile = self._grid_editor.current_profile()
         pdf_path = self._grid_editor.pdf_path
-        if not pdf_path:
-            Toast.show_in(self.window(), "Open a PDF before extracting.", success=False)
-            return
-        if not profile:
-            Toast.show_in(self.window(), "Create or apply a grid profile before extracting.", success=False)
+        preflight_error = extract_preflight_error(
+            pdf_path=pdf_path,
+            profile_exists=bool(profile),
+        )
+        if preflight_error:
+            Toast.show_in(self.window(), preflight_error, success=False)
             return
 
         self._preview_panel.setVisible(False)
@@ -344,11 +350,7 @@ class MainWindow(QMainWindow):
 
     def _on_delete_profile(self, name: str) -> None:
         if self._is_extracting():
-            Toast.show_in(
-                self.window(),
-                "Cancel extraction before deleting a layout.",
-                success=False,
-            )
+            Toast.show_in(self.window(), busy_guard_message("delete_layout"), success=False)
             return
 
         confirm = QMessageBox(self)
@@ -372,8 +374,9 @@ class MainWindow(QMainWindow):
             self._set_selected_layout_label(None)
 
         self._refresh_profiles()
-        self._set_status(f"Layout deleted: {name}")
-        Toast.show_in(self.window(), f"Layout deleted: {name}", success=True)
+        msg = named_event_message("Layout deleted", name)
+        self._set_status(msg)
+        Toast.show_in(self.window(), msg, success=True)
 
     def _set_extraction_running(self, running: bool) -> None:
         state = toolbar_state_for_running(running)
