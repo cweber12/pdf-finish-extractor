@@ -20,6 +20,14 @@ from PyQt6.QtWidgets import (
 )
 
 from src.ui import theme
+from src.ui.extraction_feedback import (
+    coerce_extracted_groups,
+    extraction_completion_message,
+    extraction_failure_toast,
+    extraction_progress_status,
+    extraction_progress_value,
+    toolbar_state_for_running,
+)
 from src.ui.extraction_session import ExtractionSession
 from src.ui.grid_editor import GlowIconButton, GridEditor
 from src.ui.profile_menu import apply_selected_layout_label, populate_profile_menu
@@ -288,33 +296,23 @@ class MainWindow(QMainWindow):
         self._extraction_session.cancel()
 
     def _on_extraction_progress(self, page_index: int, page_count: int, groups_extracted: int) -> None:
-        completed = page_index + 1
-        pct = int((completed / page_count) * 100) if page_count else 0
-        self._progress_bar.setValue(max(0, min(100, pct)))
-        self._set_status(
-            f"Extracting page {completed}/{page_count} • {groups_extracted} groups found"
-        )
+        self._progress_bar.setValue(extraction_progress_value(page_index, page_count))
+        self._set_status(extraction_progress_status(page_index, page_count, groups_extracted))
 
     def _on_extraction_finished(self, groups: object, was_cancelled: bool) -> None:
-        extracted_groups = list(groups) if isinstance(groups, list) else []
+        extracted_groups = coerce_extracted_groups(groups)
         self._preview_panel.load(extracted_groups)
         self._preview_panel.setVisible(bool(extracted_groups))
         if extracted_groups:
             self._splitter.setSizes([900, 520])
 
-        if was_cancelled:
-            msg = f"Extraction cancelled: {len(extracted_groups)} groups found."
-            self._set_status(msg)
-            Toast.show_in(self.window(), msg, success=False)
-        else:
-            msg = f"Extraction complete: {len(extracted_groups)} groups found."
-            self._set_status(msg)
-            Toast.show_in(self.window(), msg, success=True)
+        msg, success = extraction_completion_message(len(extracted_groups), was_cancelled)
+        self._set_status(msg)
+        Toast.show_in(self.window(), msg, success=success)
 
     def _on_extraction_failed(self, error: str) -> None:
         self._set_status("Extraction failed.")
-        detail = error[:120] + "…" if len(error) > 120 else error
-        Toast.show_in(self.window(), f"Extraction failed: {detail}", success=False)
+        Toast.show_in(self.window(), extraction_failure_toast(error), success=False)
 
     def _set_status(self, text: str) -> None:
         """Update the compact status area without letting long text stretch the toolbar."""
@@ -378,19 +376,16 @@ class MainWindow(QMainWindow):
         Toast.show_in(self.window(), f"Layout deleted: {name}", success=True)
 
     def _set_extraction_running(self, running: bool) -> None:
-        self._open_btn.setEnabled(not running)
-        self._profile_button.setEnabled(not running)
-        self._extract_btn.setEnabled(not running)
-        self._grid_editor.setEnabled(not running)
+        state = toolbar_state_for_running(running)
+        self._open_btn.setEnabled(state.open_enabled)
+        self._profile_button.setEnabled(state.profile_enabled)
+        self._extract_btn.setEnabled(state.extract_enabled)
+        self._grid_editor.setEnabled(state.grid_enabled)
 
-        self._cancel_extract_btn.setVisible(running)
-        self._cancel_extract_btn.setEnabled(running)
-        self._progress_bar.setVisible(running)
-        if running:
-            self._progress_bar.setValue(0)
-        else:
-            self._progress_bar.setValue(0)
-            self._progress_bar.setVisible(False)
+        self._cancel_extract_btn.setVisible(state.cancel_visible)
+        self._cancel_extract_btn.setEnabled(state.cancel_enabled)
+        self._progress_bar.setValue(state.progress_value)
+        self._progress_bar.setVisible(state.progress_visible)
 
     def _is_extracting(self) -> bool:
         return self._extraction_session.is_running()
