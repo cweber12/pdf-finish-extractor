@@ -7,8 +7,8 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor, QIcon, QPixmap
 from PyQt6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
 
-from src.ui.style import theme
 from src.ui.editor.grid_editor_widgets import GlowIconButton, make_separator, make_status_chip
+from src.ui.style import theme
 
 if TYPE_CHECKING:
     from src.ui.editor.grid_editor import GridEditor
@@ -126,7 +126,7 @@ def build_controls(editor: GridEditor) -> None:
 
     editor._auto_group_btn = GlowIconButton(
         "play.svg",
-        "Run vertical auto-group proposals from a template segment.",
+        "Snap the current page using image-anchored auto-group proposals.",
     )
     editor._auto_group_btn.clicked.connect(editor._run_auto_group)
     bar.addWidget(editor._auto_group_btn)

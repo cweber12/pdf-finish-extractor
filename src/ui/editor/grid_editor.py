@@ -28,7 +28,6 @@ from PyQt6.QtGui import (
     QWheelEvent,
 )
 from PyQt6.QtWidgets import (
-    QInputDialog,
     QStackedWidget,
     QToolButton,
     QVBoxLayout,
@@ -42,7 +41,6 @@ from src.extraction.grid import (
     GridSegment,
     OmitRegion,
 )
-from src.ui.editor.grid_editor_controls import build_controls, build_empty_state
 from src.ui.editor.auto_grouping import (
     AutoGroupProposal,
     accept_all_high_confidence,
@@ -51,15 +49,21 @@ from src.ui.editor.auto_grouping import (
     run_auto_group_pass,
     set_proposal_status,
 )
+from src.ui.editor.grid_editor_controls import build_controls, build_empty_state
 from src.ui.editor.grid_editor_fields import confirm_field_recipe_change, prompt_field_recipe
-from src.ui.editor.grid_editor_grouping import apply_group_click
 from src.ui.editor.grid_editor_geometry import (
     cell_at_orig_point,
     clamped_orig_point,
     grid_orig_boundaries,
     omit_region_index_at_orig_point,
 )
+from src.ui.editor.grid_editor_grouping import apply_group_click
 from src.ui.editor.grid_editor_hit_test import resolve_line_hit
+from src.ui.editor.grid_editor_interaction import (
+    decide_move_action,
+    decide_press_action,
+    decide_release_action,
+)
 from src.ui.editor.grid_editor_interaction_flow import (
     begin_omit_preview,
     hovered_line_from_hit,
@@ -68,11 +72,6 @@ from src.ui.editor.grid_editor_interaction_flow import (
     should_reset_zoom_interaction,
     wheel_zoom_factor,
 )
-from src.ui.editor.grid_editor_interaction import (
-    decide_move_action,
-    decide_press_action,
-    decide_release_action,
-)
 from src.ui.editor.grid_editor_lifecycle import (
     applied_profile_state,
     baseline_segments,
@@ -80,7 +79,11 @@ from src.ui.editor.grid_editor_lifecycle import (
     interaction_reset_state,
     profile_from_editor_state,
 )
-from src.ui.editor.grid_editor_line_edit import apply_line_placement, bounded_line_value, can_place_line
+from src.ui.editor.grid_editor_line_edit import (
+    apply_line_placement,
+    bounded_line_value,
+    can_place_line,
+)
 from src.ui.editor.grid_editor_modes import mode_hint, mode_uses_crosshair, resolved_mode
 from src.ui.editor.grid_editor_omit import decide_omit_move, decide_omit_release
 from src.ui.editor.grid_editor_overlay import _OverlayWidget
@@ -98,7 +101,6 @@ from src.ui.editor.grid_editor_segments import (
     segment_index_for_page,
     segment_nav_state,
 )
-from src.ui.editor.grid_editor_widgets import GlowIconButton
 from src.ui.editor.pdf_viewer import PDFViewer
 
 _LINE_HIT_DIST = 5
@@ -778,75 +780,19 @@ class GridEditor(QWidget):
     def _run_auto_group(self) -> None:
         if self.pdf_path is None or not self._segments:
             return
-
-        template_options = [f"Page {segment.start_page + 1}" for segment in self._segments]
-        template_choice, template_ok = QInputDialog.getItem(
-            self,
-            "Template Source",
-            "Choose template segment:",
-            template_options,
-            current=self._segment_index_for_page(self.current_page_index()),
-            editable=False,
-        )
-        if not template_ok:
-            return
-        template_segment = self._segments[template_options.index(template_choice)]
-
-        scope_options = ["current page", "page range", "all non-omitted pages"]
-        scope_choice, scope_ok = QInputDialog.getItem(
-            self,
-            "Auto-Group Scope",
-            "Apply auto-group to:",
-            scope_options,
-            current=0,
-            editable=False,
-        )
-        if not scope_ok:
-            return
-
-        scope = "current"
-        range_start: int | None = None
-        range_end: int | None = None
-        if scope_choice == "page range":
-            start, start_ok = QInputDialog.getInt(
-                self,
-                "Page Range",
-                "Start page (1-based):",
-                value=self.current_page_index() + 1,
-                min=1,
-                max=max(1, self._viewer.page_count),
-            )
-            if not start_ok:
-                return
-            end, end_ok = QInputDialog.getInt(
-                self,
-                "Page Range",
-                "End page (1-based):",
-                value=self.current_page_index() + 1,
-                min=1,
-                max=max(1, self._viewer.page_count),
-            )
-            if not end_ok:
-                return
-            scope = "range"
-            range_start = start - 1
-            range_end = end - 1
-        elif scope_choice == "all non-omitted pages":
-            scope = "all"
-
+        template_segment = self._segments[self._segment_index_for_page(self.current_page_index())]
         pages = build_page_scope(
             page_count=self._viewer.page_count,
-            scope=scope,
+            scope="current",
             current_page_index=self.current_page_index(),
             omitted_pages=self._omitted_pages,
-            range_start=range_start,
-            range_end=range_end,
         )
         result = run_auto_group_pass(
             pdf_path=self.pdf_path,
             page_indices=pages,
             template_page_index=template_segment.start_page,
             template_segment=template_segment,
+            fields=self._fields,
             existing_proposals=self._auto_group_proposals,
         )
         for page_index, proposal in result.proposals.items():

@@ -157,9 +157,9 @@ Upload code remains available for future reintegration but is not exposed in the
 
 The grid defined on page 1 is applied unchanged to every subsequent page unless layout segments are created by editing the grid on later pages. If a page has fewer filled cells than the grid implies, sparse groups are still emitted as long as at least one field has data.
 
-### Staged vertical auto-grouping
+### Image-anchored auto-grouping
 
-The editor can run an **on-demand auto-group pass** that uses a chosen template segment and proposes per-page vertical alignment adjustments while keeping horizontal column mapping fixed. Proposals are stored in session memory only (not profile JSON), keyed by page index, and contain:
+The editor can run an **on-demand auto-group pass** on the current page. The pass uses the active template segment and snaps rows and columns by matching swatch image geometry first. Proposals are stored in session memory only (not profile JSON), keyed by page index, and contain:
 
 - proposed `groups`
 - proposed `horizontal_lines` / `vertical_lines`
@@ -167,7 +167,13 @@ The editor can run an **on-demand auto-group pass** that uses a chosen template 
 - review status (`pending`, `accepted`, `rejected`)
 - diagnostic notes
 
-Proposals render as a distinct overlay layer and do not affect extraction until committed. Committing accepted proposals writes new page segments (`GridSegment.start_page`) so manual and committed page-specific layouts continue to use the existing planner/segment pipeline unchanged.
+The matching chain is deterministic:
+
+1. embedded image candidates via `Page.get_image_info(...)`
+2. vector drawing rectangle fallback via `Page.get_drawings(...)`
+3. text-anchor fallback using row text blocks when image anchors are unavailable
+
+Image matching uses size tolerance and top-left reading order assignment to map matched anchors to template Groups. Field areas remain anchor-relative because matched shifts are projected back into snapped grid boundaries. Proposals render as a distinct overlay layer and do not affect extraction until committed. Committing accepted proposals writes new page segments (`GridSegment.start_page`) so manual and committed page-specific layouts continue to use the existing planner/segment pipeline unchanged.
 
 ### Page omission and region ignore
 
