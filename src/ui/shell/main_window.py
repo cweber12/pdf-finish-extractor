@@ -3,6 +3,7 @@ from __future__ import annotations
 from PyQt6.QtCore import QSize, Qt
 from PyQt6.QtGui import QCloseEvent, QColor, QIcon
 from PyQt6.QtWidgets import (
+    QButtonGroup,
     QFileDialog,
     QHBoxLayout,
     QInputDialog,
@@ -14,6 +15,7 @@ from PyQt6.QtWidgets import (
     QPushButton,
     QSizePolicy,
     QSplitter,
+    QStackedWidget,
     QToolButton,
     QVBoxLayout,
     QWidget,
@@ -31,7 +33,9 @@ from src.ui.feedback.extraction_feedback import (
 from src.ui.runtime.extraction_session import ExtractionSession
 from src.ui.editor.grid_editor import GridEditor
 from src.ui.editor.grid_editor_widgets import GlowIconButton
+from src.ui.editor.pattern_editor import PatternEditor
 from src.ui.shell.main_window_intents import (
+    apply_pattern_preflight_error,
     busy_guard_message,
     extract_preflight_error,
     named_event_message,
@@ -41,6 +45,12 @@ from src.ui.profiles.profile_menu import apply_selected_layout_label, populate_p
 from src.ui.panels.preview_panel import PreviewPanel
 from src.ui.profiles.profile_manager import ProfileManager
 from src.ui.feedback.toast import Toast
+from src.extraction.grid import GridExtractionProfile
+from src.extraction.pattern import ImageTextPatternProfile
+
+_MODE_MANUAL_GRID = "manual_grid"
+_MODE_PATTERN = "image_text_pattern"
+
 
 class MainWindow(QMainWindow):
     def __init__(self) -> None:
@@ -55,6 +65,7 @@ class MainWindow(QMainWindow):
         self._extraction_session.finished.connect(self._on_extraction_finished)
         self._extraction_session.failed.connect(self._on_extraction_failed)
         self._extraction_session.running_changed.connect(self._set_extraction_running)
+        self._mode = _MODE_MANUAL_GRID
         self._build_central()
 
     # ------------------------------------------------------------------
@@ -72,15 +83,35 @@ class MainWindow(QMainWindow):
 
         root.addWidget(self._build_action_bar())
 
+        # Ctrl-bar stacked widget: index 0 = grid toolbar, index 1 = pattern toolbar
+        self._ctrl_bar_stack = QStackedWidget()
+        self._ctrl_bar_stack.setMaximumHeight(48)
+
+        self._grid_editor = GridEditor()
+        self._grid_editor.setMinimumWidth(560)
+        self._grid_editor.open_requested.connect(self._on_open_pdf)
+
+        self._ctrl_bar_stack.addWidget(self._grid_editor.ctrl_bar)  # index 0
+
+        self._pattern_editor = PatternEditor()
+        self._pattern_editor.setMinimumWidth(560)
+        self._pattern_editor.open_requested.connect(self._on_open_pdf)
+        self._pattern_editor.apply_requested.connect(self._on_apply_pattern)
+        self._ctrl_bar_stack.addWidget(self._pattern_editor.ctrl_bar)  # index 1
+
+        root.addWidget(self._ctrl_bar_stack)
+
         self._splitter = QSplitter(Qt.Orientation.Horizontal)
         self._splitter.setObjectName("workspaceSplitter")
         self._splitter.setChildrenCollapsible(False)
         self._splitter.setHandleWidth(1)
 
-        self._grid_editor = GridEditor()
-        self._grid_editor.setMinimumWidth(560)
-        self._grid_editor.open_requested.connect(self._on_open_pdf)
-        self._splitter.addWidget(self._grid_editor)
+        # Editor area stacked widget: index 0 = grid editor, index 1 = pattern editor
+        self._editor_stack = QStackedWidget()
+        self._editor_stack.setMinimumWidth(560)
+        self._editor_stack.addWidget(self._grid_editor)     # index 0
+        self._editor_stack.addWidget(self._pattern_editor)  # index 1
+        self._splitter.addWidget(self._editor_stack)
 
         self._preview_panel = PreviewPanel()
         self._preview_panel.setMinimumWidth(420)
@@ -90,7 +121,6 @@ class MainWindow(QMainWindow):
         self._splitter.setStretchFactor(1, 3)
         self._splitter.setSizes([900, 520])
 
-        root.addWidget(self._grid_editor.ctrl_bar)
         root.addWidget(self._splitter, stretch=1)
 
     def _build_action_bar(self) -> QWidget:
@@ -102,7 +132,6 @@ class MainWindow(QMainWindow):
 
         layout.addWidget(self._build_brand())
 
-        # File action — text+icon button so the entry point reads clearly.
         self._open_btn = QPushButton(QIcon(theme.icon_path("folder-open.svg")), "  Open PDF")
         self._open_btn.setObjectName("openPdfButton")
         self._open_btn.setIconSize(QSize(16, 16))
@@ -111,9 +140,11 @@ class MainWindow(QMainWindow):
         self._open_btn.clicked.connect(self._on_open_pdf)
         layout.addWidget(self._open_btn)
 
+        layout.addSpacing(4)
+        layout.addWidget(self._build_mode_selector())
         layout.addSpacing(10)
 
-        # Grid Layouts cell — dropdown fills the entire cell, flush with the bar.
+        # Grid Layouts dropdown — visible only in Manual Grid mode.
         layouts_cell = QWidget()
         layouts_cell.setObjectName("layoutsCell")
         cell_layout = QHBoxLayout(layouts_cell)
@@ -127,9 +158,7 @@ class MainWindow(QMainWindow):
         self._profile_button.setIcon(QIcon(theme.icon_path("layers.svg")))
         self._profile_button.setIconSize(QSize(16, 16))
         self._profile_button.setText("Grid Layouts")
-        self._profile_button.setToolTip(
-            "Load a saved grid layout or save the current one."
-        )
+        self._profile_button.setToolTip("Load a saved grid layout or save the current one.")
         self._profile_button.setCursor(Qt.CursorShape.PointingHandCursor)
         self._profile_button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self._profile_button.setSizePolicy(
@@ -146,7 +175,6 @@ class MainWindow(QMainWindow):
 
         layout.addSpacing(10)
 
-        # Extract action — primary text+icon button with the new extract glyph.
         self._extract_btn = QPushButton(QIcon(theme.icon_path("extract.svg")), "  Extract")
         self._extract_btn.setObjectName("extractButton")
         self._extract_btn.setIconSize(QSize(16, 16))
@@ -187,6 +215,43 @@ class MainWindow(QMainWindow):
         layout.addSpacing(18)
         return bar
 
+    def _build_mode_selector(self) -> QWidget:
+        container = QWidget()
+        container.setObjectName("modeSelector")
+        layout = QHBoxLayout(container)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+
+        self._manual_grid_btn = QPushButton("Manual Grid")
+        self._manual_grid_btn.setObjectName("modeBtnLeft")
+        self._manual_grid_btn.setCheckable(True)
+        self._manual_grid_btn.setChecked(True)
+        self._manual_grid_btn.setToolTip(
+            "Manual Grid mode — define row/column boundaries and group cells."
+        )
+        self._manual_grid_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._manual_grid_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+
+        self._pattern_btn = QPushButton("Image + Text Pattern")
+        self._pattern_btn.setObjectName("modeBtnRight")
+        self._pattern_btn.setCheckable(True)
+        self._pattern_btn.setToolTip(
+            "Image + Text Pattern mode — select a sample swatch image and "
+            "configure adjacent text regions for automatic detection."
+        )
+        self._pattern_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._pattern_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+
+        self._mode_group = QButtonGroup(self)
+        self._mode_group.setExclusive(True)
+        self._mode_group.addButton(self._manual_grid_btn, 0)
+        self._mode_group.addButton(self._pattern_btn, 1)
+        self._mode_group.idClicked.connect(self._on_mode_button_clicked)
+
+        layout.addWidget(self._manual_grid_btn)
+        layout.addWidget(self._pattern_btn)
+        return container
+
     def _build_brand(self) -> QWidget:
         """Logo + title cluster on the left of the action bar."""
         cluster = QWidget()
@@ -212,6 +277,31 @@ class MainWindow(QMainWindow):
     # Slots
     # ------------------------------------------------------------------
 
+    def _on_mode_button_clicked(self, mode_id: int) -> None:
+        if self._is_extracting():
+            Toast.show_in(self.window(), busy_guard_message("change_mode"), success=False)
+            # Revert the button state.
+            self._manual_grid_btn.setChecked(self._mode == _MODE_MANUAL_GRID)
+            self._pattern_btn.setChecked(self._mode == _MODE_PATTERN)
+            return
+
+        if mode_id == 0:
+            self._mode = _MODE_MANUAL_GRID
+            self._ctrl_bar_stack.setCurrentIndex(0)
+            self._editor_stack.setCurrentIndex(0)
+            self._profile_button.setText("Grid Layouts")
+            self._profile_button.setVisible(True)
+            self._extract_btn.setVisible(True)
+            self._set_status("Manual Grid mode.")
+        else:
+            self._mode = _MODE_PATTERN
+            self._ctrl_bar_stack.setCurrentIndex(1)
+            self._editor_stack.setCurrentIndex(1)
+            self._profile_button.setText("Pattern Profiles")
+            self._profile_button.setVisible(True)
+            self._extract_btn.setVisible(False)
+            self._set_status("Image + Text Pattern mode.")
+
     def _on_open_pdf(self) -> None:
         if self._is_extracting():
             Toast.show_in(self.window(), busy_guard_message("open_pdf"), success=False)
@@ -222,8 +312,12 @@ class MainWindow(QMainWindow):
         )
         if path:
             self._grid_editor.load_pdf(path)
+            self._pattern_editor.load_pdf(path)
             self._preview_panel.setVisible(False)
-            self._set_status("PDF loaded. Define or apply a grid profile.")
+            if self._mode == _MODE_MANUAL_GRID:
+                self._set_status("PDF loaded. Define or apply a grid profile.")
+            else:
+                self._set_status("PDF loaded. Crop a reference swatch to define a pattern.")
 
     def _on_profile_selected(self, name: str) -> None:
         if self._is_extracting():
@@ -231,21 +325,35 @@ class MainWindow(QMainWindow):
             return
 
         profile = self._profile_manager.load(name)
-        if profile:
+        if not profile:
+            return
+
+        if isinstance(profile, GridExtractionProfile):
             self._grid_editor.apply_profile(profile)
-            self._selected_profile_name = name
-            self._set_selected_layout_label(name)
-            msg = named_event_message("Profile applied", name)
-            self._set_status(msg)
-            Toast.show_in(self.window(), msg, success=True)
+        elif isinstance(profile, ImageTextPatternProfile):
+            self._pattern_editor.apply_profile(profile)
+            if self._mode != _MODE_PATTERN:
+                self._mode_group.button(1).click()
+        else:
+            Toast.show_in(self.window(), "Unrecognised profile type.", success=False)
+            return
+
+        self._selected_profile_name = name
+        self._set_selected_layout_label(name)
+        msg = named_event_message("Profile applied", name)
+        self._set_status(msg)
+        Toast.show_in(self.window(), msg, success=True)
 
     def _on_save_profile(self) -> None:
         if self._is_extracting():
             Toast.show_in(self.window(), busy_guard_message("save_profile"), success=False)
             return
 
-        profile = self._grid_editor.current_profile()
-        profile_error = save_profile_preflight_error(profile_exists=(profile is not None))
+        if self._mode == _MODE_PATTERN:
+            extraction_profile = self._pattern_editor.current_profile()
+        else:
+            extraction_profile = self._grid_editor.current_extraction_profile()
+        profile_error = save_profile_preflight_error(profile_exists=(extraction_profile is not None))
         if profile_error:
             Toast.show_in(self.window(), profile_error, success=False)
             return
@@ -261,7 +369,7 @@ class MainWindow(QMainWindow):
             return
 
         try:
-            saved_name = self._profile_manager.save(name, profile)
+            saved_name = self._profile_manager.save(name, extraction_profile)
         except ValueError as exc:
             Toast.show_in(self.window(), str(exc), success=False)
             return
@@ -270,6 +378,43 @@ class MainWindow(QMainWindow):
         self._refresh_profiles()
         self._set_selected_layout_label(saved_name)
         msg = named_event_message("Profile saved", saved_name)
+        self._set_status(msg)
+        Toast.show_in(self.window(), msg, success=True)
+
+    def _on_apply_pattern(self) -> None:
+        if self._is_extracting():
+            Toast.show_in(self.window(), busy_guard_message("apply_pattern"), success=False)
+            return
+
+        profile = self._pattern_editor.current_profile()
+        apply_error = apply_pattern_preflight_error(profile_exists=bool(profile))
+        if apply_error:
+            Toast.show_in(self.window(), apply_error, success=False)
+            return
+
+        assert profile is not None
+        suggested = self._selected_profile_name or ""
+        name, ok = QInputDialog.getText(
+            self,
+            "Apply Pattern",
+            "Pattern name:",
+            text=suggested,
+        )
+        if not ok:
+            return
+
+        try:
+            saved_name = self._profile_manager.save(name, profile)
+        except ValueError as exc:
+            Toast.show_in(self.window(), str(exc), success=False)
+            return
+
+        self._selected_profile_name = saved_name
+        self._refresh_profiles()
+        self._set_selected_layout_label(saved_name)
+        if self._mode != _MODE_MANUAL_GRID:
+            self._mode_group.button(0).click()
+        msg = named_event_message("Pattern applied", saved_name)
         self._set_status(msg)
         Toast.show_in(self.window(), msg, success=True)
 
@@ -385,6 +530,9 @@ class MainWindow(QMainWindow):
         self._profile_button.setEnabled(state.profile_enabled)
         self._extract_btn.setEnabled(state.extract_enabled)
         self._grid_editor.setEnabled(state.grid_enabled)
+        self._pattern_editor.setEnabled(not running)
+        self._manual_grid_btn.setEnabled(not running)
+        self._pattern_btn.setEnabled(not running)
 
         self._cancel_extract_btn.setVisible(state.cancel_visible)
         self._cancel_extract_btn.setEnabled(state.cancel_enabled)
@@ -402,6 +550,3 @@ class MainWindow(QMainWindow):
         if self._is_extracting():
             self._extraction_session.shutdown(1500)
         super().closeEvent(event)
-
-
-
