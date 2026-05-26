@@ -2,8 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from src.extraction.grid import Grid
-from src.profiles.repository import ProfileRepository
+from src.profiles.repository import ExtractionProfile, ProfileRepository
 
 
 class ProfileManager:
@@ -15,13 +14,13 @@ class ProfileManager:
     def list_profiles(self) -> list[str]:
         return self._repository.list_profiles()
 
-    def save(self, name: str, grid: Grid | None) -> str:
-        """Save *grid* as *name* and return the normalized saved name."""
-        if grid is None:
+    def save(self, name: str, profile: ExtractionProfile | None) -> str:
+        """Save *profile* as *name* and return the normalized saved name."""
+        if profile is None:
             raise ValueError("Create at least one grid line before saving a profile.")
-        return self._repository.save(name, grid)
+        return self._repository.save(name, profile)
 
-    def load(self, name: str) -> Grid | None:
+    def load(self, name: str) -> ExtractionProfile | None:
         return self._repository.load(name)
 
     def delete(self, name: str) -> bool:

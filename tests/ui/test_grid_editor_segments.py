@@ -79,6 +79,28 @@ def test_layout_state_for_page_returns_sorted_lines_and_groups() -> None:
     assert len(layout.groups) == 1
 
 
+def test_layout_state_for_page_before_at_and_after_boundary() -> None:
+    segments = _segments()
+    # Pages 0-2: segment[0] applies
+    before = layout_state_for_page(segments, 2)
+    assert before is not None
+    assert before.horizontal_lines == [10]
+
+    # Page 3: segment[1] starts here
+    at = layout_state_for_page(segments, 3)
+    assert at is not None
+    assert at.horizontal_lines == [15]
+
+    # Pages after: segment[1] still applies
+    after = layout_state_for_page(segments, 9)
+    assert after is not None
+    assert after.horizontal_lines == [15]
+
+
+def test_layout_state_for_page_returns_none_for_empty_segments() -> None:
+    assert layout_state_for_page([], 0) is None
+
+
 def test_segment_nav_state_and_adjacent_navigation() -> None:
     segments = _segments()
     nav = segment_nav_state(segments, 0)

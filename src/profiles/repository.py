@@ -3,8 +3,12 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path
+from typing import Any
 
-from src.extraction.grid import Grid
+from src.extraction.grid import GridExtractionProfile
+from src.extraction.pattern import ImageTextPatternProfile
+
+ExtractionProfile = GridExtractionProfile | ImageTextPatternProfile
 
 
 def default_profiles_dir() -> Path:
@@ -20,6 +24,16 @@ def safe_profile_name(name: str) -> str:
     return cleaned
 
 
+def load_profile_from_dict(data: dict[str, Any]) -> ExtractionProfile | None:
+    """Route a raw profile dict to the correct profile class by profile_type."""
+    profile_type = data.get("profile_type")
+    if profile_type is None or profile_type == "manual_grid":
+        return GridExtractionProfile.from_dict(data)
+    if profile_type == "image_text_pattern":
+        return ImageTextPatternProfile.from_dict(data)
+    return None
+
+
 class ProfileRepository:
     """Filesystem-backed repository for profile JSON documents."""
 
@@ -30,19 +44,19 @@ class ProfileRepository:
     def list_profiles(self) -> list[str]:
         return sorted(path.stem for path in self._profiles_dir.glob("*.json"))
 
-    def save(self, name: str, grid: Grid) -> str:
+    def save(self, name: str, profile: ExtractionProfile) -> str:
         saved_name = safe_profile_name(name)
         path = self._profiles_dir / f"{saved_name}.json"
-        path.write_text(json.dumps(grid.to_dict(), indent=2), encoding="utf-8")
+        path.write_text(json.dumps(profile.to_dict(), indent=2), encoding="utf-8")
         return saved_name
 
-    def load(self, name: str) -> Grid | None:
+    def load(self, name: str) -> ExtractionProfile | None:
         safe_name = safe_profile_name(name)
         path = self._profiles_dir / f"{safe_name}.json"
         if not path.exists():
             return None
         data = json.loads(path.read_text(encoding="utf-8"))
-        return Grid.from_dict(data)
+        return load_profile_from_dict(data)
 
     def delete(self, name: str) -> bool:
         safe_name = safe_profile_name(name)

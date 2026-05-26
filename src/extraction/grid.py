@@ -4,6 +4,9 @@ from collections.abc import Iterable
 from dataclasses import dataclass, field
 from typing import Any, Literal, cast
 
+_PROFILE_TYPE = "manual_grid"
+_PROFILE_VERSION = 2
+
 FieldType = Literal["text", "image"]
 CellAddress = tuple[int, int]
 
@@ -292,3 +295,52 @@ def _cells_form_rectangle(cells: list[CellAddress]) -> bool:
     cols = {col for _row, col in cells}
     expected = {(row, col) for row in rows for col in cols}
     return unique == expected
+
+
+@dataclass
+class GridExtractionProfile:
+    """Wraps a :class:`Grid` and its per-page layout history for persistence.
+
+    The ``grid`` carries global settings (fields, omitted pages, omit regions).
+    The ``segments`` list records the grid lines and groups in effect from each
+    segment's ``start_page`` onward.
+    """
+
+    grid: Grid = field(default_factory=Grid)
+    segments: list[GridSegment] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "profile_type": _PROFILE_TYPE,
+            "version": _PROFILE_VERSION,
+            "grid": self.grid.to_dict(),
+            "segments": [seg.to_dict() for seg in self.segments],
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> GridExtractionProfile:
+        if "profile_type" not in data:
+            # Migrate old Grid-only format: seed a single segment from the baseline.
+            grid = Grid.from_dict(data)
+            segments = [
+                GridSegment(
+                    start_page=0,
+                    horizontal_lines=list(grid.horizontal_lines),
+                    vertical_lines=list(grid.vertical_lines),
+                    groups=list(grid.groups),
+                )
+            ]
+            return cls(grid=grid, segments=segments)
+
+        grid = Grid.from_dict(data.get("grid", {}))
+        segments = [GridSegment.from_dict(s) for s in data.get("segments", [])]
+        if not segments:
+            segments = [
+                GridSegment(
+                    start_page=0,
+                    horizontal_lines=list(grid.horizontal_lines),
+                    vertical_lines=list(grid.vertical_lines),
+                    groups=list(grid.groups),
+                )
+            ]
+        return cls(grid=grid, segments=segments)

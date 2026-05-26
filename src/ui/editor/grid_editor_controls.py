@@ -88,14 +88,6 @@ def build_controls(editor: GridEditor) -> None:
     editor._zoom_label.setToolTip("Zoom level — scroll over the page to zoom")
     bar.addWidget(editor._zoom_label)
 
-    editor._auto_page_label = make_status_chip("Auto: none")
-    editor._auto_page_label.setToolTip("Auto-group status for current page")
-    bar.addWidget(editor._auto_page_label)
-
-    editor._auto_summary_label = make_status_chip("P0 A0 R0")
-    editor._auto_summary_label.setToolTip("Auto-group proposal counts (pending/accepted/rejected)")
-    bar.addWidget(editor._auto_summary_label)
-
     bar.addStretch(1)
 
     bar.addWidget(make_separator())
@@ -119,45 +111,6 @@ def build_controls(editor: GridEditor) -> None:
     omit_all_btn.setProperty("warn", True)
     omit_all_btn.clicked.connect(editor._omit_all_pages)
     bar.addWidget(omit_all_btn)
-
-    bar.addSpacing(6)
-    bar.addWidget(make_separator())
-    bar.addSpacing(6)
-
-    editor._auto_group_btn = GlowIconButton(
-        "play.svg",
-        "Snap the current page using image-anchored auto-group proposals.",
-    )
-    editor._auto_group_btn.clicked.connect(editor._run_auto_group)
-    bar.addWidget(editor._auto_group_btn)
-
-    editor._auto_accept_btn = GlowIconButton(
-        "chevrons-right.svg",
-        "Accept all high-confidence auto-group proposals.",
-    )
-    editor._auto_accept_btn.clicked.connect(editor._accept_all_high_confidence_proposals)
-    bar.addWidget(editor._auto_accept_btn)
-
-    editor._auto_commit_btn = GlowIconButton(
-        "save.svg",
-        "Commit accepted auto-group proposals.",
-    )
-    editor._auto_commit_btn.clicked.connect(editor._commit_accepted_proposals)
-    bar.addWidget(editor._auto_commit_btn)
-
-    editor._auto_accept_page_btn = GlowIconButton(
-        "chevron-right.svg",
-        "Accept current page auto-group proposal.",
-    )
-    editor._auto_accept_page_btn.clicked.connect(editor._accept_current_page_proposal)
-    bar.addWidget(editor._auto_accept_page_btn)
-
-    editor._auto_reject_page_btn = GlowIconButton(
-        "close.svg",
-        "Reject current page auto-group proposal.",
-    )
-    editor._auto_reject_page_btn.clicked.connect(editor._reject_current_page_proposal)
-    bar.addWidget(editor._auto_reject_page_btn)
 
     bar.addSpacing(6)
     bar.addWidget(make_separator())

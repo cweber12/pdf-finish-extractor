@@ -38,6 +38,7 @@ from src.extraction.grid import (
     CellGroup,
     FieldDefinition,
     Grid,
+    GridExtractionProfile,
     GridSegment,
     OmitRegion,
 )
@@ -154,7 +155,6 @@ class GridEditor(QWidget):
         self._overlay = _OverlayWidget(self)
         build_controls(self)
         self._build_layout()
-        self._update_auto_group_widgets()
 
     # ------------------------------------------------------------------
     # Layout
@@ -199,7 +199,6 @@ class GridEditor(QWidget):
         self._segments = baseline_segments(self._h_lines, self._v_lines, self._groups)
         self._auto_group_proposals = {}
         self._update_page_controls()
-        self._update_auto_group_widgets()
         self._update_segment_nav()
         self._reposition_overlay()
 
@@ -217,12 +216,22 @@ class GridEditor(QWidget):
         """Return the per-page layout history for the current session."""
         return list(self._segments)
 
-    def apply_profile(self, grid: Grid) -> None:
-        state = applied_profile_state(grid)
-        self._h_lines = state.horizontal_lines
-        self._v_lines = state.vertical_lines
+    def current_extraction_profile(self) -> GridExtractionProfile | None:
+        """Return the full profile (grid + segments) for saving."""
+        if not self._segments or not any(
+            seg.horizontal_lines or seg.vertical_lines for seg in self._segments
+        ):
+            return None
+        grid = Grid(
+            fields=list(self._fields),
+            omitted_pages=sorted(self._omitted_pages),
+            omit_regions=list(self._omit_regions),
+        )
+        return GridExtractionProfile(grid=grid, segments=list(self._segments))
+
+    def apply_profile(self, profile: GridExtractionProfile) -> None:
+        state = applied_profile_state(profile.grid)
         self._fields = state.fields
-        self._groups = state.groups
         self._omitted_pages = state.omitted_pages
         self._omit_regions = state.omit_regions
         reset = interaction_reset_state()
@@ -231,12 +240,25 @@ class GridEditor(QWidget):
         self._hovered_line = reset.hovered_line
         self._omit_start = reset.omit_start
         self._omit_preview = reset.omit_preview
-        # Treat the applied profile as the baseline layout for all pages.
-        self._segments = baseline_segments(self._h_lines, self._v_lines, self._groups)
+        if profile.segments:
+            self._segments = list(profile.segments)
+            layout = layout_state_for_page(self._segments, 0)
+            if layout:
+                self._h_lines = list(layout.horizontal_lines)
+                self._v_lines = list(layout.vertical_lines)
+                self._groups = list(layout.groups)
+            else:
+                self._h_lines = state.horizontal_lines
+                self._v_lines = state.vertical_lines
+                self._groups = state.groups
+        else:
+            self._h_lines = state.horizontal_lines
+            self._v_lines = state.vertical_lines
+            self._groups = state.groups
+            self._segments = baseline_segments(self._h_lines, self._v_lines, self._groups)
         self._auto_group_proposals = {}
         self._set_hint("Profile applied. Navigate pages to review page/section omissions.")
         self._update_page_controls()
-        self._update_auto_group_widgets()
         self._update_segment_nav()
         self._overlay.update()
 
@@ -249,18 +271,6 @@ class GridEditor(QWidget):
 
     def _proposal_for_current_page(self) -> AutoGroupProposal | None:
         return self._auto_group_proposals.get(self.current_page_index())
-
-    def _update_auto_group_widgets(self) -> None:
-        pending = sum(1 for proposal in self._auto_group_proposals.values() if proposal.status == "pending")
-        accepted = sum(1 for proposal in self._auto_group_proposals.values() if proposal.status == "accepted")
-        rejected = sum(1 for proposal in self._auto_group_proposals.values() if proposal.status == "rejected")
-        self._auto_summary_label.setText(f"P{pending} A{accepted} R{rejected}")
-
-        proposal = self._proposal_for_current_page()
-        if proposal is None:
-            self._auto_page_label.setText("Auto: none")
-            return
-        self._auto_page_label.setText(f"Auto: {proposal.status}/{proposal.confidence_bucket}")
 
     def _apply_proposal_preview_for_page(self, page_index: int) -> bool:
         proposal = self._auto_group_proposals.get(page_index)
@@ -296,7 +306,6 @@ class GridEditor(QWidget):
         self._omit_preview = None
         self._update_page_controls()
         self._load_segment_for_page(index)
-        self._update_auto_group_widgets()
         self._update_segment_nav()
         self._set_hint(viewing_page_hint(index))
         self._reposition_overlay()
@@ -306,7 +315,6 @@ class GridEditor(QWidget):
         self._omitted_pages = decision.omitted_pages
         self._set_hint(decision.hint)
         self._update_page_controls()
-        self._update_auto_group_widgets()
         self._overlay.update()
 
     def _omit_all_pages(self) -> None:
@@ -316,7 +324,6 @@ class GridEditor(QWidget):
         omitted_pages, hint = decision
         self._omitted_pages = omitted_pages
         self._update_page_controls()
-        self._update_auto_group_widgets()
         self._overlay.update()
         self._set_hint(hint)
 
@@ -801,13 +808,11 @@ class GridEditor(QWidget):
                 continue
             self._auto_group_proposals[page_index] = proposal
         self._load_segment_for_page(self.current_page_index())
-        self._update_auto_group_widgets()
         self._overlay.update()
 
     def _accept_all_high_confidence_proposals(self) -> None:
         self._auto_group_proposals = accept_all_high_confidence(self._auto_group_proposals)
         self._load_segment_for_page(self.current_page_index())
-        self._update_auto_group_widgets()
         self._overlay.update()
 
     def _commit_accepted_proposals(self) -> None:
@@ -821,7 +826,6 @@ class GridEditor(QWidget):
             proposals=self._auto_group_proposals,
         )
         self._load_segment_for_page(self.current_page_index())
-        self._update_auto_group_widgets()
         self._update_segment_nav()
         self._overlay.update()
 
@@ -832,7 +836,6 @@ class GridEditor(QWidget):
             status="accepted",
         )
         self._load_segment_for_page(self.current_page_index())
-        self._update_auto_group_widgets()
         self._overlay.update()
 
     def _reject_current_page_proposal(self) -> None:
@@ -842,7 +845,6 @@ class GridEditor(QWidget):
             status="rejected",
         )
         self._load_segment_for_page(self.current_page_index())
-        self._update_auto_group_widgets()
         self._overlay.update()
 
     # ------------------------------------------------------------------
@@ -885,7 +887,6 @@ class GridEditor(QWidget):
         self._segments = baseline_segments(self._h_lines, self._v_lines, self._groups)
         self._auto_group_proposals = {}
         self._update_page_controls()
-        self._update_auto_group_widgets()
         self._update_segment_nav()
         self._set_hint("Grid and omissions cleared. Add row and column boundaries to start again.")
         self._overlay.update()

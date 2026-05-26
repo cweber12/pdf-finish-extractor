@@ -1,0 +1,313 @@
+{
+  "horizontal_lines": [
+    573,
+    761,
+    802,
+    991,
+    1033,
+    1222,
+    1255,
+    1295,
+    1484,
+    1519
+  ],
+  "vertical_lines": [
+    128,
+    346,
+    372,
+    590,
+    616,
+    834,
+    860,
+    1079
+  ],
+  "fields": [
+    {
+      "name": "swatch",
+      "type": "image",
+      "click_count": 1
+    },
+    {
+      "name": "material_id",
+      "type": "text",
+      "click_count": 1
+    }
+  ],
+  "groups": [
+    {
+      "field_cells": {
+        "swatch": [
+          [
+            1,
+            1
+          ]
+        ],
+        "material_id": [
+          [
+            2,
+            1
+          ]
+        ]
+      }
+    },
+    {
+      "field_cells": {
+        "swatch": [
+          [
+            3,
+            1
+          ]
+        ],
+        "material_id": [
+          [
+            4,
+            1
+          ]
+        ]
+      }
+    },
+    {
+      "field_cells": {
+        "swatch": [
+          [
+            5,
+            1
+          ]
+        ],
+        "material_id": [
+          [
+            6,
+            1
+          ]
+        ]
+      }
+    },
+    {
+      "field_cells": {
+        "swatch": [
+          [
+            1,
+            3
+          ]
+        ],
+        "material_id": [
+          [
+            2,
+            3
+          ]
+        ]
+      }
+    },
+    {
+      "field_cells": {
+        "swatch": [
+          [
+            3,
+            3
+          ]
+        ],
+        "material_id": [
+          [
+            4,
+            3
+          ]
+        ]
+      }
+    },
+    {
+      "field_cells": {
+        "swatch": [
+          [
+            5,
+            3
+          ]
+        ],
+        "material_id": [
+          [
+            6,
+            3
+          ]
+        ]
+      }
+    },
+    {
+      "field_cells": {
+        "swatch": [
+          [
+            1,
+            5
+          ]
+        ],
+        "material_id": [
+          [
+            2,
+            5
+          ]
+        ]
+      }
+    },
+    {
+      "field_cells": {
+        "swatch": [
+          [
+            3,
+            5
+          ]
+        ],
+        "material_id": [
+          [
+            4,
+            5
+          ]
+        ]
+      }
+    },
+    {
+      "field_cells": {
+        "swatch": [
+          [
+            5,
+            5
+          ]
+        ],
+        "material_id": [
+          [
+            6,
+            5
+          ]
+        ]
+      }
+    },
+    {
+      "field_cells": {
+        "swatch": [
+          [
+            8,
+            5
+          ]
+        ],
+        "material_id": [
+          [
+            9,
+            5
+          ]
+        ]
+      }
+    },
+    {
+      "field_cells": {
+        "swatch": [
+          [
+            1,
+            7
+          ]
+        ],
+        "material_id": [
+          [
+            2,
+            7
+          ]
+        ]
+      }
+    },
+    {
+      "field_cells": {
+        "swatch": [
+          [
+            3,
+            7
+          ]
+        ],
+        "material_id": [
+          [
+            4,
+            7
+          ]
+        ]
+      }
+    },
+    {
+      "field_cells": {
+        "swatch": [
+          [
+            5,
+            7
+          ]
+        ],
+        "material_id": [
+          [
+            6,
+            7
+          ]
+        ]
+      }
+    },
+    {
+      "field_cells": {
+        "swatch": [
+          [
+            8,
+            7
+          ]
+        ],
+        "material_id": [
+          [
+            9,
+            7
+          ]
+        ]
+      }
+    },
+    {
+      "field_cells": {
+        "swatch": [
+          [
+            8,
+            1
+          ]
+        ],
+        "material_id": [
+          [
+            9,
+            1
+          ]
+        ]
+      }
+    },
+    {
+      "field_cells": {
+        "swatch": [
+          [
+            8,
+            3
+          ]
+        ],
+        "material_id": [
+          [
+            9,
+            3
+          ]
+        ]
+      }
+    }
+  ],
+  "omitted_pages": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16
+  ],
+  "omit_regions": []
+}
